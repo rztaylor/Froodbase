@@ -25,6 +25,14 @@ scripts/validate.sh
 
 See `docs/dev/ops/development.md` for prerequisites.
 
+## Running
+
+```bash
+make up
+```
+
+Starts PostgreSQL, `froodbase-api` and `froodbase-dreamer` in Docker Compose; `make down` stops them. Details and configuration in `docs/dev/ops/development.md`.
+
 ## Reading order for a newcomer
 
 The pitch, then `docs/planning/05-how-froodbase-works.md`, then the product requirements and architecture design. To contribute, read `docs/planning/07-local-mvp.md` for what is being built first and where it runs.

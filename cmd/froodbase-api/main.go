@@ -1,10 +1,16 @@
 package main
 
 import (
+	"context"
 	"flag"
 	"fmt"
+	"log/slog"
 	"os"
+	"os/signal"
+	"syscall"
 
+	"github.com/rztaylor/froodbase/internal/config"
+	"github.com/rztaylor/froodbase/internal/httpserver"
 	"github.com/rztaylor/froodbase/internal/version"
 )
 
@@ -17,6 +23,18 @@ func main() {
 		return
 	}
 
-	fmt.Fprintln(os.Stderr, "froodbase-api: not implemented yet; see docs/planning/04-implementation-plan.md")
-	os.Exit(2)
+	cfg, err := config.LoadAPI(os.LookupEnv)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "froodbase-api:", err)
+		os.Exit(2)
+	}
+
+	log := slog.New(slog.NewJSONHandler(os.Stdout, nil))
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+
+	if err := httpserver.New(log).Run(ctx, cfg.Addr); err != nil {
+		log.Error("froodbase-api failed", "err", err)
+		os.Exit(1)
+	}
 }

@@ -1,10 +1,15 @@
 package main
 
 import (
+	"context"
 	"flag"
 	"fmt"
+	"log/slog"
 	"os"
+	"os/signal"
+	"syscall"
 
+	"github.com/rztaylor/froodbase/internal/config"
 	"github.com/rztaylor/froodbase/internal/version"
 )
 
@@ -17,6 +22,18 @@ func main() {
 		return
 	}
 
-	fmt.Fprintln(os.Stderr, "froodbase-dreamer: not implemented yet; see docs/planning/04-implementation-plan.md")
-	os.Exit(2)
+	if _, err := config.LoadDreamer(os.LookupEnv); err != nil {
+		fmt.Fprintln(os.Stderr, "froodbase-dreamer:", err)
+		os.Exit(2)
+	}
+
+	log := slog.New(slog.NewJSONHandler(os.Stdout, nil))
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+
+	// Job workers arrive with later slice 0 tickets; until then the dreamer
+	// only reports that it started and waits to be stopped.
+	log.Info("froodbase-dreamer starting", "version", version.Version)
+	<-ctx.Done()
+	log.Info("froodbase-dreamer stopping")
 }

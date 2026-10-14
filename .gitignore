@@ -8,6 +8,7 @@ coverage.out
 # Local environment
 .env
 .env.*
+!.env.example
 *.local
 
 # Editors and OS
