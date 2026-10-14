@@ -5,8 +5,10 @@ Reference design: `docs/planning/03-architecture-design.md`. This file records w
 ## Current state
 
 - One Go module, `github.com/rztaylor/froodbase`, hosted at `github.com/rztaylor/Froodbase` (see `.agents/facts/git.md`).
-- Entrypoints: `cmd/froodbase-mcp`, `cmd/froodbase-api`, `cmd/froodbase-dreamer`. All print a version and exit; no behaviour yet.
+- Entrypoints: `cmd/froodbase-mcp`, `cmd/froodbase-api`, `cmd/froodbase-dreamer`. `froodbase-mcp` prints a version and exits; `froodbase-api` serves `GET /healthz`; `froodbase-dreamer` logs a startup line and waits for a signal.
 - `internal/version`: build identity shared by all binaries.
+- `internal/config`: `FROODBASE_` environment variables for `froodbase-api` and `froodbase-dreamer`; validation only, no connections, never logs values.
+- `internal/httpserver`: the HTTP listener of `froodbase-api` (router, health endpoint, graceful shutdown). MCP handlers and auth are mounted here from their own packages when they exist.
 
 ## Intended boundaries (create packages as the plan reaches them)
 
@@ -30,5 +32,5 @@ Dependency direction: `cmd/*` -> `mcpserver`, `dreamer`, `client` -> `retrieval`
 ## Generated assets and data
 
 - sqlc output and goose migrations will live under `internal/store/`. Not yet created.
-- Local runtime: Docker Compose (`compose.yaml` at the repository root once slice 0 lands) with PostgreSQL 16, `froodbase-api` and `froodbase-dreamer`; `froodbase-mcp` runs on the host.
+- Local runtime: Docker Compose (`compose.yaml` at the repository root) with PostgreSQL 16 (`pgvector/pgvector:pg16`, named volume), `froodbase-api` and `froodbase-dreamer` built from the root `Dockerfile`; `froodbase-mcp` runs on the host. Started with `make up`; variables in `.env.example`.
 - Local build outputs in `bin/`, ignored by git.

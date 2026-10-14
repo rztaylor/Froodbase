@@ -1,0 +1,10 @@
+.git
+.github
+.agents
+.cache
+bin
+dist
+docs
+.env
+.env.*
+*.md

@@ -27,3 +27,25 @@ jobs:
         run: go test -race -cover ./...
       - name: Build
         run: make build
+
+  compose:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Start the stack
+        run: make up
+      - name: Check the API health endpoint
+        run: curl --fail --silent --show-error http://127.0.0.1:8080/healthz
+      - name: Check the dreamer startup line
+        run: docker compose logs dreamer | grep -q "froodbase-dreamer starting"
+      - name: Check the PostgreSQL extensions are available
+        run: |
+          docker compose exec -T postgres psql -U froodbase -d froodbase -tA \
+            -c "select count(*) from pg_available_extensions where name in ('vector', 'pg_trgm', 'btree_gist')" \
+            | grep -qx 3
+      - name: Show logs
+        if: always()
+        run: docker compose logs
+      - name: Stop the stack
+        if: always()
+        run: make down
