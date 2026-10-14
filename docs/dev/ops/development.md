@@ -4,7 +4,8 @@
 
 - Go matching the `go` directive in `go.mod`.
 - golangci-lint v2 (`brew install golangci-lint`).
-- Later phases: PostgreSQL 16 with pgvector for integration tests, Azure CLI for Entra app registration.
+- From MVP slice 0: Docker (Compose for the local stack, Testcontainers for the integration suite).
+- Cloud move: Azure CLI for Entra app registration.
 
 ## Build and validate
 
@@ -16,7 +17,7 @@ Runs vet, lint, race tests and builds all three binaries into `bin/`. Individual
 
 ## Running
 
-The binaries currently accept `--version` only. Behaviour arrives with implementation plan phase 1 (`docs/planning/04-implementation-plan.md`).
+The binaries currently accept `--version` only. Behaviour arrives slice by slice per `docs/planning/07-local-mvp.md`; slice 0 adds the Compose stack and the Claude Code registration, documented here when it lands.
 
 ## Configuration
 

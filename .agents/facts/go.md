@@ -6,4 +6,4 @@
 - Formatting: `gofmt` and `goimports` via golangci-lint formatters.
 - Lint: golangci-lint v2, config in `.golangci.yml` (standard set plus `misspell` with UK locale and `revive`).
 - Build: `make build` injects version, commit and date into `internal/version` with `-ldflags`.
-- Planned dependencies (add when the plan reaches them, record licences in `docs/dev/ops/third-party.md` at that point): MCP Go SDK, pgx v5, sqlc, pgvector-go, River, azidentity, go-oidc v3, OpenTelemetry.
+- Planned dependencies (add when a slice reaches them, record licences in `docs/dev/ops/third-party.md` at that point). MVP: MCP Go SDK, pgx v5, sqlc, goose, River, Testcontainers for Go. Cloud move: pgvector-go, azidentity, go-oidc v3, OpenTelemetry.
