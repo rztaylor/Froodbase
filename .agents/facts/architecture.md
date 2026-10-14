@@ -4,7 +4,7 @@ Reference design: `docs/planning/03-architecture-design.md`. This file records w
 
 ## Current state
 
-- One Go module, `github.com/rztaylor/froodbase`. Decision needed: confirm the module path and GitHub owner before the first external import.
+- One Go module, `github.com/rztaylor/froodbase`, hosted at `github.com/rztaylor/Froodbase` (see `.agents/facts/git.md`).
 - Entrypoints: `cmd/froodbase-mcp`, `cmd/froodbase-api`, `cmd/froodbase-dreamer`. All print a version and exit; no behaviour yet.
 - `internal/version`: build identity shared by all binaries.
 
