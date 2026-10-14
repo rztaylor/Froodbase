@@ -11,8 +11,8 @@ Reference design: `docs/planning/03-architecture-design.md`. This file records w
 ## Intended boundaries (create packages as the plan reaches them)
 
 - `internal/domain`: records, scope, temporal rules, lifecycle state machine, conflict classification. No I/O. Everything depends on it; it depends on nothing internal.
-- `internal/authz`: authorisation context from token claims, area and role mapping.
-- `internal/store`: PostgreSQL access (pgx, sqlc), migrations, RLS session variable, River job insertion.
+- `internal/authz`: the authorisation context (caller identity, acting agent, (area, role) grants) and the interface that builds it from a request. MVP implementation: static users with basic auth. Later: Entra token claims and group mapping. No credential type appears in the interface.
+- `internal/store`: PostgreSQL access (pgx, sqlc), goose migrations, RLS session variable, River job insertion.
 - `internal/retrieval`: candidate channels, permission and mode filters, fusion, explanation trace.
 - `internal/contribute`: evidence validation, entity resolution, conflict detection, acceptance policy, change-set writes.
 - `internal/ingest`: local report parsing and preview (used by `froodbase-mcp` only).
@@ -29,5 +29,6 @@ Dependency direction: `cmd/*` -> `mcpserver`, `dreamer`, `client` -> `retrieval`
 
 ## Generated assets and data
 
-- sqlc output and migrations will live under `internal/store/`. Not yet created.
+- sqlc output and goose migrations will live under `internal/store/`. Not yet created.
+- Local runtime: Docker Compose (`compose.yaml` at the repository root once slice 0 lands) with PostgreSQL 16, `froodbase-api` and `froodbase-dreamer`; `froodbase-mcp` runs on the host.
 - Local build outputs in `bin/`, ignored by git.
