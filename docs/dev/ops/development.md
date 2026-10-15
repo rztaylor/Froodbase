@@ -24,6 +24,8 @@ Runs vet, lint, race tests and builds all three binaries into `bin/`. Individual
 | `make up` | Creates `.env` from `.env.example` on first run (with a generated database password), builds the images and starts the stack, returning once PostgreSQL and the API report healthy |
 | `make down` | Stops and removes the containers; the database volume `froodbase_postgres-data` is kept |
 | `make logs` | Follows the logs of all three services |
+| `make migrate` | Applies pending schema migrations to the Compose database by running `froodbase-api migrate` from the api image; safe to repeat |
+| `make migrate-status` | Lists every migration with its version and whether it is applied |
 
 Checks after `make up`:
 
@@ -34,6 +36,10 @@ curl -s http://127.0.0.1:8080/healthz
 returns `{"status":"ok","version":"..."}`. `make logs` shows the dreamer's `froodbase-dreamer starting` line. `psql postgres://froodbase:<password>@127.0.0.1:5432/froodbase` connects with the password from `.env`.
 
 To start again with an empty database, run `docker compose down -v`; the password in `.env` is applied when the volume is first created, so change it only together with removing the volume.
+
+## Migrations
+
+Schema migrations are SQL files under `internal/store/migrations`, named `NNNNN_description.sql` with strictly increasing versions, applied by goose in version order and forward-only: a file has an Up section and no Down section, and a mistake is corrected by a later migration. They are embedded in `froodbase-api`, so `froodbase-api migrate` applies them wherever the binary runs and `froodbase-api migrate --status` lists them; `make migrate` and `make migrate-status` run those commands from the api image against the Compose database. Locally a developer runs them by hand after `make up`; in the cloud only the deployment pipeline runs them (`docs/planning/02-technical-requirements.md`, TR-92). Both server binaries open the database pool at startup and exit with a clear error if PostgreSQL is unreachable, so start the stack before running them from `bin/`.
 
 Behaviour beyond the health endpoint and the dreamer's startup line arrives slice by slice per `docs/planning/07-local-mvp.md`. Running a binary from `bin/` outside Compose needs the two `FROODBASE_` variables the binaries read, below.
 

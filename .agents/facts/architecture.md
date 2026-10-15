@@ -9,6 +9,7 @@ Reference design: `docs/planning/03-architecture-design.md`. This file records w
 - `internal/version`: build identity shared by all binaries.
 - `internal/config`: `FROODBASE_` environment variables for `froodbase-api` and `froodbase-dreamer`; validation only, no connections, never logs values.
 - `internal/httpserver`: the HTTP listener of `froodbase-api` (router, health endpoint, graceful shutdown). MCP handlers and auth are mounted here from their own packages when they exist.
+- `internal/store`: pgx pool and embedded goose migrations (`internal/store/migrations`), applied by `froodbase-api migrate`. Both server binaries open the pool at startup. No queries yet.
 
 ## Intended boundaries (create packages as the plan reaches them)
 
@@ -31,6 +32,6 @@ Dependency direction: `cmd/*` -> `mcpserver`, `dreamer`, `client` -> `retrieval`
 
 ## Generated assets and data
 
-- sqlc output and goose migrations will live under `internal/store/`. Not yet created.
+- goose migrations live in `internal/store/migrations` (forward-only, `NNNNN_description.sql`, embedded). sqlc output will live under `internal/store/gen`; not yet created.
 - Local runtime: Docker Compose (`compose.yaml` at the repository root) with PostgreSQL 16 (`pgvector/pgvector:pg16`, named volume), `froodbase-api` and `froodbase-dreamer` built from the root `Dockerfile`; `froodbase-mcp` runs on the host. Started with `make up`; variables in `.env.example`.
 - Local build outputs in `bin/`, ignored by git.
