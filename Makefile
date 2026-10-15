@@ -1,4 +1,4 @@
-.PHONY: build test lint vet fmt validate clean up down logs
+.PHONY: build test lint vet fmt validate clean up down logs migrate migrate-status
 
 BINARIES := froodbase-mcp froodbase-api froodbase-dreamer
 VERSION  ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
@@ -49,3 +49,11 @@ down:
 
 logs:
 	docker compose logs --follow
+
+# Migrations run from the api image inside the Compose network, so the
+# container's FROODBASE_DATABASE_URL applies and nothing else is configured.
+migrate: .env
+	docker compose run --rm --no-deps --build api migrate
+
+migrate-status: .env
+	docker compose run --rm --no-deps api migrate --status
