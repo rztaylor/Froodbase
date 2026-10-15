@@ -7,6 +7,7 @@ Reference design: `docs/planning/03-architecture-design.md`. This file records w
 - One Go module, `github.com/rztaylor/froodbase`, hosted at `github.com/rztaylor/Froodbase` (see `.agents/facts/git.md`).
 - Entrypoints: `cmd/froodbase-mcp`, `cmd/froodbase-api`, `cmd/froodbase-dreamer`. `froodbase-mcp` serves MCP over stdio and forwards to the API through `internal/client`; `froodbase-api` serves `GET /healthz` and MCP at `/mcp` behind basic auth; `froodbase-dreamer` runs River workers (heartbeat every minute) and a health endpoint reporting queue depth.
 - `internal/version`: build identity shared by all binaries.
+- `internal/domain`: the knowledge model with no I/O, importing only the standard library: knowledge areas, entities (immutable id, type, names with validity windows), assertions (epistemic kind enum, subject, Markdown body, typed scope, the TR-30 temporal fields), evidence (source kind, URI, revision, excerpt, access class, root) and contributions. Owns evidence shareability (TR-61), access-class ordering and corroboration over distinct roots (TR-25). `NewObservation` sets `recorded_at` only. Nothing depends on it yet.
 - `internal/config`: `FROODBASE_` environment variables for `froodbase-api` and `froodbase-dreamer`; validation only, no connections, never logs values.
 - `internal/httpserver`: the HTTP listener of `froodbase-api` (router, health endpoint, graceful shutdown). MCP handlers and auth are mounted here from their own packages when they exist.
 - `internal/authz`: `Context`, `Principal`, `Builder` interface and role implication; `internal/authz/staticusers`: JSON users file with bcrypt hashes, `Authenticate` and `Build`.
@@ -17,7 +18,7 @@ Reference design: `docs/planning/03-architecture-design.md`. This file records w
 
 ## Intended boundaries (create packages as the plan reaches them)
 
-- `internal/domain`: records, scope, temporal rules, lifecycle state machine, conflict classification. No I/O. Everything depends on it; it depends on nothing internal.
+- `internal/domain`: records, scope, temporal rules, lifecycle state machine, conflict classification. No I/O. Exists with the slice 1 records; scope overlap, lifecycle and conflict classification arrive with later slices. Everything depends on it; it depends on nothing internal.
 - `internal/authz`: the authorisation context (caller identity, acting agent, (area, role) grants) and the `Builder` interface from an authenticated `Principal`. Implementations: `authz/staticusers` (MVP, exists); Entra token claims and group mapping (cloud move). No credential type appears in the interface.
 - `internal/store`: PostgreSQL access (pgx, sqlc), goose migrations, RLS session variable, River job insertion.
 - `internal/retrieval`: candidate channels, permission and mode filters, fusion, explanation trace.
