@@ -1,5 +1,9 @@
 .PHONY: build test test-integration lint vet fmt validate clean up down logs migrate migrate-status
 
+# Pure Go: no C compiler is needed, so cgo is off everywhere (the Dockerfile
+# builds the same way). On macOS this also avoids the developer-tools prompt.
+export CGO_ENABLED := 0
+
 BINARIES := froodbase-mcp froodbase-api froodbase-dreamer
 VERSION  ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
 COMMIT   ?= $(shell git rev-parse --short HEAD 2>/dev/null || echo unknown)

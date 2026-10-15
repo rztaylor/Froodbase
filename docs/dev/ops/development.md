@@ -2,7 +2,7 @@
 
 ## Prerequisites
 
-- Go matching the `go` directive in `go.mod`.
+- Go matching the `go` directive in `go.mod`. No C compiler: Froodbase is pure Go and every build and test runs with cgo disabled, so macOS never needs Xcode or its Command Line Tools for this repository.
 - golangci-lint v2 (`brew install golangci-lint`).
 - Docker with Compose v2 (`docker compose`) for the local stack and, later, the Testcontainers integration suite. Not needed for `scripts/validate.sh`.
 - Cloud move: Azure CLI for Entra app registration.

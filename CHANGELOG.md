@@ -4,6 +4,10 @@ All notable changes to Froodbase are recorded here. The format follows Keep a Ch
 
 ## Unreleased
 
+### Fixed
+
+- Building or testing on a Mac without Xcode's Command Line Tools no longer triggers Apple's developer-tools prompt: cgo is disabled in the Makefile, the validation script and CI.
+
 ### Added
 
 - `make test-integration` runs the integration tests against a disposable PostgreSQL started by Testcontainers (`internal/store/storetest` gives each test its own migrated database); CI runs them in a separate job and the unit gate stays Docker-free.

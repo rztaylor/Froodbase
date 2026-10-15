@@ -7,6 +7,8 @@ cd "$(dirname "$0")/.."
 
 export GOCACHE="${GOCACHE:-$PWD/.cache/go-build}"
 export GOFLAGS="${GOFLAGS:--mod=mod}"
+# Pure Go: no C compiler needed; keeps macOS from asking for Xcode's tools.
+export CGO_ENABLED=0
 
 echo "==> go vet"
 go vet ./...
