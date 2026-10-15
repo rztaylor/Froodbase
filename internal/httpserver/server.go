@@ -21,20 +21,30 @@ const (
 	shutdownTimeout   = 10 * time.Second
 )
 
+// MCPPath is where the Streamable HTTP MCP endpoint is mounted.
+const MCPPath = "/mcp"
+
 // Server is the froodbase-api HTTP server.
 type Server struct {
 	log *slog.Logger
+	mux *http.ServeMux
 	srv *http.Server
 }
 
-// New builds a server with the routes mounted. It does not listen.
+// New builds a server with the health route mounted. It does not listen.
 func New(log *slog.Logger) *Server {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET "+HealthPath, handleHealth)
 	return &Server{
 		log: log,
+		mux: mux,
 		srv: &http.Server{Handler: mux, ReadHeaderTimeout: readHeaderTimeout},
 	}
+}
+
+// Mount adds a handler at pattern (a net/http ServeMux pattern).
+func (s *Server) Mount(pattern string, h http.Handler) {
+	s.mux.Handle(pattern, h)
 }
 
 // Handler returns the router, for tests and for mounting in other servers.

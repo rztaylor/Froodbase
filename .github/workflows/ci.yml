@@ -44,6 +44,16 @@ jobs:
         run: make migrate | grep -q "nothing to apply"
       - name: Check migration status
         run: make migrate-status | grep -E "^ +1 +applied"
+      - name: MCP endpoint rejects anonymous requests
+        run: |
+          code=$(curl -s -o /dev/null -w '%{http_code}' -H 'Content-Type: application/json' -H 'Accept: application/json, text/event-stream' \
+            -d '{"jsonrpc":"2.0","id":1,"method":"tools/list"}' http://127.0.0.1:8080/mcp)
+          test "$code" = 401
+      - name: whoami answers with the sample user's grants
+        run: |
+          curl --fail -s -u alice:froodbase-dev -H 'Content-Type: application/json' -H 'Accept: application/json, text/event-stream' \
+            -d '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"whoami","arguments":{}}}' http://127.0.0.1:8080/mcp \
+            | grep -q '"reviewer"'
       - name: Check the PostgreSQL extensions are installed
         run: |
           docker compose exec -T postgres psql -U froodbase -d froodbase -tA \

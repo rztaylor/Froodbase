@@ -14,6 +14,8 @@ func mapLookup(m map[string]string) Lookup {
 
 const goodURL = "postgres://froodbase:s3cret@postgres:5432/froodbase?sslmode=disable"
 
+const usersFile = "/etc/froodbase/users.json"
+
 func TestLoadAPI(t *testing.T) {
 	tests := []struct {
 		name    string
@@ -23,23 +25,28 @@ func TestLoadAPI(t *testing.T) {
 	}{
 		{
 			name: "defaults the address",
-			env:  map[string]string{EnvDatabaseURL: goodURL},
-			want: API{Addr: DefaultAPIAddr, DatabaseURL: goodURL},
+			env:  map[string]string{EnvDatabaseURL: goodURL, EnvUsersFile: usersFile},
+			want: API{Addr: DefaultAPIAddr, DatabaseURL: goodURL, UsersFile: usersFile},
 		},
 		{
 			name: "empty address is the default",
-			env:  map[string]string{EnvDatabaseURL: goodURL, EnvAPIAddr: ""},
-			want: API{Addr: DefaultAPIAddr, DatabaseURL: goodURL},
+			env:  map[string]string{EnvDatabaseURL: goodURL, EnvAPIAddr: "", EnvUsersFile: usersFile},
+			want: API{Addr: DefaultAPIAddr, DatabaseURL: goodURL, UsersFile: usersFile},
 		},
 		{
 			name: "explicit address",
-			env:  map[string]string{EnvDatabaseURL: goodURL, EnvAPIAddr: "127.0.0.1:9090"},
-			want: API{Addr: "127.0.0.1:9090", DatabaseURL: goodURL},
+			env:  map[string]string{EnvDatabaseURL: goodURL, EnvAPIAddr: "127.0.0.1:9090", EnvUsersFile: usersFile},
+			want: API{Addr: "127.0.0.1:9090", DatabaseURL: goodURL, UsersFile: usersFile},
 		},
 		{
 			name: "postgresql scheme",
-			env:  map[string]string{EnvDatabaseURL: "postgresql://u:p@h/db"},
-			want: API{Addr: DefaultAPIAddr, DatabaseURL: "postgresql://u:p@h/db"},
+			env:  map[string]string{EnvDatabaseURL: "postgresql://u:p@h/db", EnvUsersFile: usersFile},
+			want: API{Addr: DefaultAPIAddr, DatabaseURL: "postgresql://u:p@h/db", UsersFile: usersFile},
+		},
+		{
+			name:    "users file missing",
+			env:     map[string]string{EnvDatabaseURL: goodURL},
+			wantErr: "FROODBASE_USERS_FILE is not set",
 		},
 		{
 			name:    "database URL missing",
