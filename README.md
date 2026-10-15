@@ -31,7 +31,7 @@ See `docs/dev/ops/development.md` for prerequisites.
 make up
 ```
 
-Starts PostgreSQL, `froodbase-api` and `froodbase-dreamer` in Docker Compose; `make down` stops them. Details and configuration in `docs/dev/ops/development.md`.
+Starts PostgreSQL, `froodbase-api` and `froodbase-dreamer` in Docker Compose; `make down` stops them. `make build` then produces `bin/froodbase-mcp` to register in Claude Code. Details, the registration command and configuration are in `docs/dev/ops/development.md`.
 
 ## Reading order for a newcomer
 

@@ -3,6 +3,7 @@ package mcpserver
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"testing"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
@@ -75,5 +76,27 @@ func TestNilHandlerOmitsTool(t *testing.T) {
 	}
 	if len(tools.Tools) != 0 {
 		t.Fatalf("tools = %+v, want none", tools.Tools)
+	}
+}
+
+func TestUnavailableBecomesResultNotError(t *testing.T) {
+	ctx := context.Background()
+	cs := connect(ctx, t, New("test", Handlers{Whoami: func(context.Context) (WhoamiOutput, error) {
+		return WhoamiOutput{}, &UnavailableError{APIURL: "http://127.0.0.1:1/mcp", Err: errors.New("connection refused")}
+	}}))
+	res, err := cs.CallTool(ctx, &mcp.CallToolParams{Name: ToolWhoami})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.IsError {
+		t.Fatalf("unavailable reported as a tool error: %+v", res.Content)
+	}
+	raw, _ := json.Marshal(res.StructuredContent)
+	var out Unavailable
+	if err := json.Unmarshal(raw, &out); err != nil {
+		t.Fatal(err)
+	}
+	if !out.FroodbaseUnavailable || out.APIURL != "http://127.0.0.1:1/mcp" || out.Message != UnavailableMessage || out.Cause != "connection refused" {
+		t.Fatalf("unavailable = %+v", out)
 	}
 }

@@ -78,7 +78,7 @@ func run(args []string) int {
 		&mcp.StreamableHTTPOptions{Stateless: true, JSONResponse: true, Logger: log},
 	)
 	srv := httpserver.New(log)
-	srv.Mount(httpserver.MCPPath, httpserver.BasicAuth(users, users, mcpHandler))
+	srv.Mount(httpserver.MCPPath, httpserver.BasicAuth(users, users, httpserver.ClientVersion(log, mcpHandler)))
 	log.Info("froodbase-api users loaded", "count", users.Len(), "file", cfg.UsersFile)
 
 	if err := srv.Run(ctx, cfg.Addr); err != nil {

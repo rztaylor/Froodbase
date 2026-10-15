@@ -113,3 +113,30 @@ func TestLoadDreamer(t *testing.T) {
 		t.Fatalf("LoadDreamer() with no URL: error = %v, want 'is not set'", err)
 	}
 }
+
+func TestLoadMCP(t *testing.T) {
+	full := map[string]string{EnvAPIURL: "http://127.0.0.1:8080/mcp", EnvUsername: "alice", EnvPassword: "s3cret"}
+	got, err := LoadMCP(mapLookup(full))
+	if err != nil || got.APIURL != full[EnvAPIURL] || got.Username != "alice" || got.Password != "s3cret" {
+		t.Fatalf("LoadMCP() = %+v, %v", got, err)
+	}
+	for _, missing := range []string{EnvAPIURL, EnvUsername, EnvPassword} {
+		env := map[string]string{}
+		for k, v := range full {
+			if k != missing {
+				env[k] = v
+			}
+		}
+		_, err := LoadMCP(mapLookup(env))
+		if err == nil || !strings.Contains(err.Error(), missing+" is not set") {
+			t.Errorf("without %s: err = %v", missing, err)
+		}
+		if err != nil && strings.Contains(err.Error(), "s3cret") {
+			t.Errorf("error echoes the password: %v", err)
+		}
+	}
+	env := map[string]string{EnvAPIURL: "ftp://x/mcp", EnvUsername: "a", EnvPassword: "b"}
+	if _, err := LoadMCP(mapLookup(env)); err == nil || !strings.Contains(err.Error(), "http://") {
+		t.Errorf("ftp URL: err = %v", err)
+	}
+}
