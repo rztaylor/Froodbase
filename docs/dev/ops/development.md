@@ -21,11 +21,11 @@ Runs vet, lint, race tests and builds all three binaries into `bin/`. Individual
 
 | Target | What it does |
 |---|---|
-| `make up` | Creates `.env` from `.env.example` on first run (with a generated database password), builds the images and starts the stack, returning once PostgreSQL and the API report healthy |
+| `make up` | Creates `.env` from `.env.example` on first run (with a generated database password), builds the images, applies pending migrations through the one-shot `migrate` service, and starts the stack, returning once PostgreSQL, the API and the dreamer report healthy |
 | `make down` | Stops and removes the containers; the database volume `froodbase_postgres-data` is kept |
 | `make logs` | Follows the logs of all three services |
-| `make migrate` | Applies pending schema migrations to the Compose database by running `froodbase-api migrate` from the api image; safe to repeat |
-| `make migrate-status` | Lists every migration with its version and whether it is applied |
+| `make migrate` | Applies pending schema migrations to the Compose database by rerunning the `migrate` service (`froodbase-api migrate`); safe to repeat |
+| `make migrate-status` | Lists every migration with its version and whether it is applied, plus River's job queue schema version |
 
 `make up` also creates `local/users.json` from `local/users.example.json` on first run: three sample users (alice, reviewer; bob, contributor; carol, reader) in the `demo` area, all with the password `froodbase-dev`. The file is ignored by git.
 
@@ -35,7 +35,7 @@ Checks after `make up`:
 curl -s http://127.0.0.1:8080/healthz
 ```
 
-returns `{"status":"ok","version":"..."}`. `make logs` shows the dreamer's `froodbase-dreamer starting` line. `psql postgres://froodbase:<password>@127.0.0.1:5432/froodbase` connects with the password from `.env`.
+returns `{"status":"ok","version":"...","min_client_version":"..."}`, and `curl -s http://127.0.0.1:8081/healthz` returns the dreamer's `{"status":"ok","version":"...","queue_depth":N}`. `make logs` shows the dreamer's `froodbase-dreamer starting` line and a `heartbeat` line every minute. `psql postgres://froodbase:<password>@127.0.0.1:5432/froodbase` connects with the password from `.env`.
 
 To start again with an empty database, run `docker compose down -v`; the password in `.env` is applied when the volume is first created, so change it only together with removing the volume.
 
@@ -101,7 +101,17 @@ Without Claude Code you can drive the binary over stdin; the stream must stay op
 
 ## Migrations
 
-Schema migrations are SQL files under `internal/store/migrations`, named `NNNNN_description.sql` with strictly increasing versions, applied by goose in version order and forward-only: a file has an Up section and no Down section, and a mistake is corrected by a later migration. They are embedded in `froodbase-api`, so `froodbase-api migrate` applies them wherever the binary runs and `froodbase-api migrate --status` lists them; `make migrate` and `make migrate-status` run those commands from the api image against the Compose database. Locally a developer runs them by hand after `make up`; in the cloud only the deployment pipeline runs them (`docs/planning/02-technical-requirements.md`, TR-92). Both server binaries open the database pool at startup and exit with a clear error if PostgreSQL is unreachable, so start the stack before running them from `bin/`.
+Schema migrations are SQL files under `internal/store/migrations`, named `NNNNN_description.sql` with strictly increasing versions, applied by goose in version order and forward-only: a file has an Up section and no Down section, and a mistake is corrected by a later migration. After them, `froodbase-api migrate` applies River's own job queue schema (the `river_job` and related tables), which River versions itself. The migrations are embedded in `froodbase-api`, so `froodbase-api migrate` applies them wherever the binary runs and `froodbase-api migrate --status` lists them. Locally the Compose `migrate` service runs them before the api and dreamer start, and `make migrate` reruns them after you add a migration; in the cloud only the deployment pipeline runs them (`docs/planning/02-technical-requirements.md`, TR-92). Both server binaries open the database pool at startup and exit with a clear error if PostgreSQL is unreachable, so start the stack before running them from `bin/`.
+
+## Background jobs: the dreamer
+
+`froodbase-dreamer` works background jobs from the River queue in PostgreSQL. Jobs are enqueued by `froodbase-api` inside the transaction that changes a record (the outbox pattern), so a job exists only if its record was committed; periodic jobs are inserted by the dreamer instance River elects as leader, so two instances never both schedule them. Argument types live in `internal/store/jobs`, one per job kind; workers live in `internal/dreamer`. Slice 0 has one kind, `heartbeat`, which runs every minute (and once at startup) and is unique per minute. Its completed rows in `river_job` are the proof the dreamer is alive:
+
+```bash
+docker compose exec -T postgres psql -U froodbase -d froodbase -c "select id, kind, state, finalized_at from river_job order by id desc limit 5"
+```
+
+The health endpoint on `FROODBASE_DREAMER_ADDR` reports the queue depth (jobs waiting or running) and answers 503 with `"status":"degraded"` when the database cannot be read.
 
 Behaviour beyond the health endpoint and the dreamer's startup line arrives slice by slice per `docs/planning/07-local-mvp.md`. Running a binary from `bin/` outside Compose needs the two `FROODBASE_` variables the binaries read, below.
 
@@ -118,12 +128,14 @@ Read by `compose.yaml` to assemble the stack:
 | `FROODBASE_DB_PASSWORD` | generated by `make up` | PostgreSQL password; required, never committed |
 | `FROODBASE_DB_PORT` | `5432` | Host port on 127.0.0.1 where PostgreSQL is published for `psql` |
 | `FROODBASE_API_PORT` | `8080` | Host port on 127.0.0.1 where `froodbase-api` is published |
+| `FROODBASE_DREAMER_PORT` | `8081` | Host port on 127.0.0.1 where the dreamer's health endpoint is published |
 
 Read by the binaries (`internal/config`); Compose sets them for the containers:
 
 | Variable | Default | Meaning |
 |---|---|---|
 | `FROODBASE_API_ADDR` | `:8080` | Listen address of `froodbase-api` |
+| `FROODBASE_DREAMER_ADDR` | `:8081` | Health listen address of `froodbase-dreamer` (queue depth) |
 | `FROODBASE_DATABASE_URL` | none, required | PostgreSQL connection URL (`postgres://user:password@host:port/db?sslmode=disable`) read by `froodbase-api` and `froodbase-dreamer`; its value is never logged |
 | `FROODBASE_USERS_FILE` | none, required by `froodbase-api` | Path of the static users JSON file (Compose mounts `local/users.json` at `/etc/froodbase/users.json`) |
 

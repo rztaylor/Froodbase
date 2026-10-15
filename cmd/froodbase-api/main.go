@@ -119,24 +119,32 @@ func runMigrate(args []string) int {
 		}
 		for _, s := range statuses {
 			state := "pending"
-			if s.Applied {
+			switch {
+			case s.Applied && !s.AppliedAt.IsZero():
 				state = "applied " + s.AppliedAt.UTC().Format("2006-01-02T15:04:05Z")
+			case s.Applied:
+				state = "applied"
 			}
 			fmt.Printf("%5d  %-9s  %s\n", s.Version, state, s.Source)
 		}
 		return 0
 	}
 
-	applied, err := pool.Migrate(ctx)
+	applied, riverSteps, err := pool.Migrate(ctx)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "froodbase-api migrate:", err)
 		return 1
 	}
-	if len(applied) == 0 {
+	if len(applied) == 0 && riverSteps == 0 {
 		fmt.Println("migrations: nothing to apply")
 		return 0
 	}
-	fmt.Printf("migrations: applied %d (up to version %d)\n", len(applied), applied[len(applied)-1])
+	if len(applied) > 0 {
+		fmt.Printf("migrations: applied %d (up to version %d)\n", len(applied), applied[len(applied)-1])
+	}
+	if riverSteps > 0 {
+		fmt.Printf("migrations: applied %d River schema steps\n", riverSteps)
+	}
 	return 0
 }
 

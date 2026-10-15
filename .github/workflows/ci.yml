@@ -38,12 +38,17 @@ jobs:
         run: curl --fail --silent --show-error http://127.0.0.1:8080/healthz
       - name: Check the dreamer startup line
         run: docker compose logs dreamer | grep -q "froodbase-dreamer starting"
-      - name: Apply migrations
-        run: make migrate
+      - name: Check the dreamer health endpoint reports queue depth
+        run: curl --fail --silent --show-error http://127.0.0.1:8081/healthz | grep -q '"queue_depth"'
+      - name: Migrations were applied by the migrate service during make up
+        run: docker compose logs migrate | grep -q "migrations: applied"
       - name: Apply migrations again (nothing to do)
         run: make migrate | grep -q "nothing to apply"
       - name: Check migration status
-        run: make migrate-status | grep -E "^ +1 +applied"
+        run: |
+          out=$(make migrate-status)
+          echo "$out" | grep -E "^ +1 +applied"
+          echo "$out" | grep -E "river \(job queue schema\)"
       - name: MCP endpoint rejects anonymous requests
         run: |
           code=$(curl -s -o /dev/null -w '%{http_code}' -H 'Content-Type: application/json' -H 'Accept: application/json, text/event-stream' \
@@ -73,6 +78,15 @@ jobs:
             | FROODBASE_API_URL=http://127.0.0.1:8080/mcp FROODBASE_USERNAME=alice FROODBASE_PASSWORD=froodbase-dev bin/froodbase-mcp 2>/dev/null \
             | grep -q '"froodbase_unavailable":true'
           docker compose start api
+      - name: Heartbeat job completed in the River job table
+        run: |
+          for i in $(seq 1 30); do
+            n=$(docker compose exec -T postgres psql -U froodbase -d froodbase -tA \
+              -c "select count(*) from river_job where kind = 'heartbeat' and state = 'completed'")
+            [ "$n" -ge 1 ] && exit 0
+            sleep 2
+          done
+          echo "no completed heartbeat"; exit 1
       - name: Check the PostgreSQL extensions are installed
         run: |
           docker compose exec -T postgres psql -U froodbase -d froodbase -tA \
