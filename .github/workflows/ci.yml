@@ -41,7 +41,7 @@ jobs:
       - name: Check the dreamer health endpoint reports queue depth
         run: curl --fail --silent --show-error http://127.0.0.1:8081/healthz | grep -q '"queue_depth"'
       - name: Migrations were applied by the migrate service during make up
-        run: docker compose logs migrate | grep -q "migrations: applied"
+        run: docker compose logs migrate | grep -q 'migrations. applied'
       - name: Apply migrations again (nothing to do)
         run: make migrate | grep -q "nothing to apply"
       - name: Check migration status
