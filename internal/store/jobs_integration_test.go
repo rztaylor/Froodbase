@@ -1,38 +1,24 @@
 //go:build integration
 
-package store
+package store_test
 
 import (
 	"context"
-	"os"
 	"testing"
 	"time"
 
 	"github.com/rztaylor/froodbase/internal/store/jobs"
+	"github.com/rztaylor/froodbase/internal/store/storetest"
 )
 
 func TestJobsEnqueueTransactionally(t *testing.T) {
-	url := os.Getenv("FROODBASE_TEST_DATABASE_URL")
-	if url == "" {
-		t.Skip("FROODBASE_TEST_DATABASE_URL not set")
-	}
 	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
 	defer cancel()
-	pool, err := Open(ctx, url)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer pool.Close()
-	if _, _, err := pool.Migrate(ctx); err != nil {
-		t.Fatal(err)
-	}
-	// A distinct minute far in the past so the test never collides with the
-	// dreamer's live heartbeat.
-	minute := time.Date(2000, 1, 2, 3, 4, 0, 0, time.UTC).Add(time.Duration(time.Now().UnixNano()%100000) * time.Minute)
+	pool := storetest.Pool(t)
+	minute := time.Date(2026, 1, 2, 3, 4, 0, 0, time.UTC)
 	count := func() int {
 		var n int
-		if err := pool.Pgx().QueryRow(ctx, "select count(*) from river_job where kind = $1 and args->>'scheduled_for' = $2",
-			jobs.KindHeartbeat, minute.Format(time.RFC3339)).Scan(&n); err != nil {
+		if err := pool.Pgx().QueryRow(ctx, "select count(*) from river_job where kind = $1", jobs.KindHeartbeat).Scan(&n); err != nil {
 			t.Fatal(err)
 		}
 		return n
@@ -74,7 +60,7 @@ func TestJobsEnqueueTransactionally(t *testing.T) {
 	if n := count(); n != 1 {
 		t.Fatalf("after commit: %d jobs, want 1", n)
 	}
-	if depth, err := pool.QueueDepth(ctx); err != nil || depth < 1 {
-		t.Fatalf("QueueDepth = %d, %v", depth, err)
+	if depth, err := pool.QueueDepth(ctx); err != nil || depth != 1 {
+		t.Fatalf("QueueDepth = %d, %v, want 1", depth, err)
 	}
 }

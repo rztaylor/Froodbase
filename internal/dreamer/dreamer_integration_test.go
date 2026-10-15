@@ -8,34 +8,21 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
-	"os"
 	"testing"
 	"time"
 
-	"github.com/rztaylor/froodbase/internal/store"
 	"github.com/rztaylor/froodbase/internal/store/jobs"
+	"github.com/rztaylor/froodbase/internal/store/storetest"
 )
 
 func TestHeartbeatIsWorked(t *testing.T) {
-	url := os.Getenv("FROODBASE_TEST_DATABASE_URL")
-	if url == "" {
-		t.Skip("FROODBASE_TEST_DATABASE_URL not set")
-	}
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 	defer cancel()
-	pool, err := store.Open(ctx, url)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer pool.Close()
-	if _, _, err := pool.Migrate(ctx); err != nil {
-		t.Fatal(err)
-	}
+	pool := storetest.Pool(t)
 
-	// The database may be shared with a running dreamer, whose own heartbeat
-	// would satisfy a wait on the current minute. Enqueue a heartbeat for a
-	// minute no scheduler produces and wait for a worker to complete it.
-	own := jobs.HeartbeatFor(time.Date(1999, 12, 31, 23, 0, 0, 0, time.UTC).Add(time.Duration(time.Now().UnixNano()%100000) * time.Minute))
+	// Enqueue a heartbeat for a fixed past minute and wait for the worker to
+	// complete it; RunOnStart also inserts one for the current minute.
+	own := jobs.HeartbeatFor(time.Date(1999, 12, 31, 23, 0, 0, 0, time.UTC))
 	if _, err := pool.Jobs().Insert(ctx, own); err != nil {
 		t.Fatal(err)
 	}
