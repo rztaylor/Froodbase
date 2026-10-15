@@ -11,6 +11,9 @@ const (
 	EnvAPIAddr     = "FROODBASE_API_ADDR"
 	EnvDatabaseURL = "FROODBASE_DATABASE_URL"
 	EnvUsersFile   = "FROODBASE_USERS_FILE"
+	EnvAPIURL      = "FROODBASE_API_URL"
+	EnvUsername    = "FROODBASE_USERNAME"
+	EnvPassword    = "FROODBASE_PASSWORD"
 )
 
 // DefaultAPIAddr is the listen address froodbase-api uses when
@@ -35,6 +38,38 @@ type API struct {
 type Dreamer struct {
 	// DatabaseURL is the PostgreSQL connection URL.
 	DatabaseURL string
+}
+
+// MCP is the startup configuration of froodbase-mcp.
+type MCP struct {
+	// APIURL is the froodbase-api MCP endpoint, for example
+	// http://127.0.0.1:8080/mcp.
+	APIURL string
+	// Username and Password authenticate the person to froodbase-api.
+	Username string
+	Password string
+}
+
+// LoadMCP reads and validates the froodbase-mcp configuration. Errors name
+// the variable, never its value.
+func LoadMCP(lookup Lookup) (MCP, error) {
+	apiURL, ok := lookup(EnvAPIURL)
+	if !ok || apiURL == "" {
+		return MCP{}, fmt.Errorf("config: %s is not set", EnvAPIURL)
+	}
+	u, err := url.Parse(apiURL)
+	if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" {
+		return MCP{}, fmt.Errorf("config: %s must be an http:// or https:// URL", EnvAPIURL)
+	}
+	user, ok := lookup(EnvUsername)
+	if !ok || user == "" {
+		return MCP{}, fmt.Errorf("config: %s is not set", EnvUsername)
+	}
+	pass, ok := lookup(EnvPassword)
+	if !ok || pass == "" {
+		return MCP{}, fmt.Errorf("config: %s is not set", EnvPassword)
+	}
+	return MCP{APIURL: apiURL, Username: user, Password: pass}, nil
 }
 
 // LoadAPI reads and validates the froodbase-api configuration.

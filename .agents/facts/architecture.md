@@ -5,12 +5,13 @@ Reference design: `docs/planning/03-architecture-design.md`. This file records w
 ## Current state
 
 - One Go module, `github.com/rztaylor/froodbase`, hosted at `github.com/rztaylor/Froodbase` (see `.agents/facts/git.md`).
-- Entrypoints: `cmd/froodbase-mcp`, `cmd/froodbase-api`, `cmd/froodbase-dreamer`. `froodbase-mcp` prints a version and exits; `froodbase-api` serves `GET /healthz`; `froodbase-dreamer` logs a startup line and waits for a signal.
+- Entrypoints: `cmd/froodbase-mcp`, `cmd/froodbase-api`, `cmd/froodbase-dreamer`. `froodbase-mcp` serves MCP over stdio and forwards to the API through `internal/client`; `froodbase-api` serves `GET /healthz` and MCP at `/mcp` behind basic auth; `froodbase-dreamer` logs a startup line and waits for a signal.
 - `internal/version`: build identity shared by all binaries.
 - `internal/config`: `FROODBASE_` environment variables for `froodbase-api` and `froodbase-dreamer`; validation only, no connections, never logs values.
 - `internal/httpserver`: the HTTP listener of `froodbase-api` (router, health endpoint, graceful shutdown). MCP handlers and auth are mounted here from their own packages when they exist.
 - `internal/authz`: `Context`, `Principal`, `Builder` interface and role implication; `internal/authz/staticusers`: JSON users file with bcrypt hashes, `Authenticate` and `Build`.
-- `internal/mcpserver`: tool definitions on the MCP Go SDK with caller-supplied handlers; `whoami` only so far. `froodbase-api` mounts the Streamable HTTP handler at `/mcp` behind the basic-auth middleware in `internal/httpserver`.
+- `internal/client`: the SDK client `froodbase-mcp` uses against the API: basic auth, `Froodbase-Client-Version` header, connection and 5xx failures mapped to `mcpserver.UnavailableError`, 401/403 to `AuthError`.
+- `internal/mcpserver`: tool definitions on the MCP Go SDK with caller-supplied handlers; `whoami` only so far. An `UnavailableError` from a handler becomes an `Unavailable` result, not a tool error. `froodbase-api` mounts the Streamable HTTP handler at `/mcp` behind the basic-auth middleware in `internal/httpserver`.
 - `internal/store`: pgx pool and embedded goose migrations (`internal/store/migrations`), applied by `froodbase-api migrate`. Both server binaries open the pool at startup. No queries yet.
 
 ## Intended boundaries (create packages as the plan reaches them)
@@ -23,7 +24,7 @@ Reference design: `docs/planning/03-architecture-design.md`. This file records w
 - `internal/ingest`: local report parsing and preview (used by `froodbase-mcp` only).
 - `internal/dreamer`: job definitions for indexing, reconsideration, sweeps, gap scans, consolidation, reflection, knowledge views.
 - `internal/mcpserver`: tool definitions on the MCP Go SDK with handlers supplied by the binary (API engines in `froodbase-api`, forwarding client in `froodbase-mcp`). Exists; grows a tool set per slice.
-- `internal/client`: the HTTPS client `froodbase-mcp` uses to call `froodbase-api`.
+- `internal/client`: the HTTPS client `froodbase-mcp` uses to call `froodbase-api`. Exists; gains Entra sign-in with the cloud move.
 
 Dependency direction: `cmd/*` -> `mcpserver`, `dreamer`, `client` -> `retrieval`, `contribute`, `ingest`, `authz` -> `store` -> `domain`. Nothing imports `cmd/*`.
 

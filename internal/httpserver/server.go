@@ -89,11 +89,12 @@ func (s *Server) Serve(ctx context.Context, ln net.Listener) error {
 }
 
 type healthResponse struct {
-	Status  string `json:"status"`
-	Version string `json:"version"`
+	Status           string `json:"status"`
+	Version          string `json:"version"`
+	MinClientVersion string `json:"min_client_version"`
 }
 
 func handleHealth(w http.ResponseWriter, _ *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
-	_ = json.NewEncoder(w).Encode(healthResponse{Status: "ok", Version: version.Version})
+	_ = json.NewEncoder(w).Encode(healthResponse{Status: "ok", Version: version.Version, MinClientVersion: version.MinClientVersion})
 }

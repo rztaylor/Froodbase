@@ -71,6 +71,34 @@ curl -s -u alice:froodbase-dev -H 'Content-Type: application/json' -H 'Accept: a
 
 The sample users and their shared password are for local development only; anything reachable beyond your computer needs its own users file.
 
+## Using Froodbase from Claude Code
+
+`froodbase-mcp` is the stdio MCP server Claude Code launches on your computer. It forwards every tool call to `froodbase-api` with your credentials and never touches the database. Build it with `make build`, then register it once (replace the path with your checkout):
+
+```bash
+claude mcp add froodbase \
+  -e FROODBASE_API_URL=http://127.0.0.1:8080/mcp \
+  -e FROODBASE_USERNAME=alice \
+  -e FROODBASE_PASSWORD=froodbase-dev \
+  -- /Users/you/src/Froodbase/bin/froodbase-mcp
+```
+
+`froodbase-mcp` refuses to start if any of the three variables is missing and never prints the password. In Claude Code, `/mcp` lists the `froodbase` server and its tools; ask Claude to call `whoami` and it reports your user id, display name and grants per knowledge area.
+
+When `froodbase-api` is not running (for example the stack is down), every tool returns a result with `"froodbase_unavailable": true`, the API address, the cause, and the instruction to continue with packaged and local knowledge and to record in the report that Froodbase could not be reached. It is a normal result, not an error, so an agent can carry on (TR-102). Wrong credentials are different: they produce a tool error naming the two variables to check.
+
+Every call carries the client version in the `Froodbase-Client-Version` header. The API publishes its minimum compatible client version on `/healthz` (`min_client_version`) and logs a warning when a client is below it; development builds are always accepted.
+
+Without Claude Code you can drive the binary over stdin; the stream must stay open until the answers arrive:
+
+```bash
+( printf '%s\n' \
+  '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"smoke","version":"0"}}}' \
+  '{"jsonrpc":"2.0","method":"notifications/initialized"}' \
+  '{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"whoami","arguments":{}}}'; sleep 3 ) \
+  | FROODBASE_API_URL=http://127.0.0.1:8080/mcp FROODBASE_USERNAME=alice FROODBASE_PASSWORD=froodbase-dev bin/froodbase-mcp 2>/dev/null
+```
+
 ## Migrations
 
 Schema migrations are SQL files under `internal/store/migrations`, named `NNNNN_description.sql` with strictly increasing versions, applied by goose in version order and forward-only: a file has an Up section and no Down section, and a mistake is corrected by a later migration. They are embedded in `froodbase-api`, so `froodbase-api migrate` applies them wherever the binary runs and `froodbase-api migrate --status` lists them; `make migrate` and `make migrate-status` run those commands from the api image against the Compose database. Locally a developer runs them by hand after `make up`; in the cloud only the deployment pipeline runs them (`docs/planning/02-technical-requirements.md`, TR-92). Both server binaries open the database pool at startup and exit with a clear error if PostgreSQL is unreachable, so start the stack before running them from `bin/`.
@@ -98,3 +126,11 @@ Read by the binaries (`internal/config`); Compose sets them for the containers:
 | `FROODBASE_API_ADDR` | `:8080` | Listen address of `froodbase-api` |
 | `FROODBASE_DATABASE_URL` | none, required | PostgreSQL connection URL (`postgres://user:password@host:port/db?sslmode=disable`) read by `froodbase-api` and `froodbase-dreamer`; its value is never logged |
 | `FROODBASE_USERS_FILE` | none, required by `froodbase-api` | Path of the static users JSON file (Compose mounts `local/users.json` at `/etc/froodbase/users.json`) |
+
+Read by `froodbase-mcp` on the host, normally set in the Claude Code registration:
+
+| Variable | Default | Meaning |
+|---|---|---|
+| `FROODBASE_API_URL` | none, required | The API's MCP endpoint, `http://127.0.0.1:8080/mcp` for the Compose stack |
+| `FROODBASE_USERNAME` | none, required | A username from the users file |
+| `FROODBASE_PASSWORD` | none, required | That user's password; never logged |
