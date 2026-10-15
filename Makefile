@@ -41,7 +41,11 @@ export VERSION COMMIT DATE
 	@pw=$$(head -c 16 /dev/urandom | od -An -tx1 | tr -d ' \n'); \
 	sed -e "s/^FROODBASE_DB_PASSWORD=$$/FROODBASE_DB_PASSWORD=$$pw/" .env.example > .env
 
-up: .env
+local/users.json:
+	@echo "creating local/users.json from local/users.example.json (dev users, password froodbase-dev)"
+	@cp local/users.example.json local/users.json
+
+up: .env local/users.json
 	docker compose up --build --wait
 
 down:
@@ -52,8 +56,8 @@ logs:
 
 # Migrations run from the api image inside the Compose network, so the
 # container's FROODBASE_DATABASE_URL applies and nothing else is configured.
-migrate: .env
+migrate: .env local/users.json
 	docker compose run --rm --no-deps --build api migrate
 
-migrate-status: .env
+migrate-status: .env local/users.json
 	docker compose run --rm --no-deps api migrate --status

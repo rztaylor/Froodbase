@@ -27,6 +27,8 @@ Runs vet, lint, race tests and builds all three binaries into `bin/`. Individual
 | `make migrate` | Applies pending schema migrations to the Compose database by running `froodbase-api migrate` from the api image; safe to repeat |
 | `make migrate-status` | Lists every migration with its version and whether it is applied |
 
+`make up` also creates `local/users.json` from `local/users.example.json` on first run: three sample users (alice, reviewer; bob, contributor; carol, reader) in the `demo` area, all with the password `froodbase-dev`. The file is ignored by git.
+
 Checks after `make up`:
 
 ```bash
@@ -36,6 +38,38 @@ curl -s http://127.0.0.1:8080/healthz
 returns `{"status":"ok","version":"..."}`. `make logs` shows the dreamer's `froodbase-dreamer starting` line. `psql postgres://froodbase:<password>@127.0.0.1:5432/froodbase` connects with the password from `.env`.
 
 To start again with an empty database, run `docker compose down -v`; the password in `.env` is applied when the volume is first created, so change it only together with removing the volume.
+
+## Signing in: static users and basic auth
+
+The local MVP authenticates with HTTP basic auth against a static user list (decision in `docs/dev/decisions.md`; the authorisation-context interface in `internal/authz` is what an Entra implementation replaces later). `froodbase-api` reads the file named by `FROODBASE_USERS_FILE` at startup and refuses to start if it is malformed or a `password_hash` is not a bcrypt hash, so a plaintext password can never be configured by accident.
+
+```json
+{
+  "users": [
+    {
+      "username": "alice",
+      "display_name": "Alice",
+      "password_hash": "$2a$10$...",
+      "grants": {"demo": ["reviewer"], "platform": ["reader"]}
+    }
+  ]
+}
+```
+
+Roles per knowledge area are `reader`, `contributor`, `reviewer` (which includes contributor and reader) and `admin` (operators only, no implied roles). To add a user, generate a hash and paste it into `local/users.json`, then restart the api:
+
+```bash
+echo -n 'new-password' | docker compose run --rm --no-deps -T api hash-password
+```
+
+The MCP endpoint is `http://127.0.0.1:8080/mcp` (Streamable HTTP). Every request needs basic auth; without it the answer is 401 and no tool runs. Check your identity and grants with the `whoami` tool:
+
+```bash
+curl -s -u alice:froodbase-dev -H 'Content-Type: application/json' -H 'Accept: application/json, text/event-stream' \
+  -d '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"whoami","arguments":{}}}' http://127.0.0.1:8080/mcp
+```
+
+The sample users and their shared password are for local development only; anything reachable beyond your computer needs its own users file.
 
 ## Migrations
 
@@ -63,3 +97,4 @@ Read by the binaries (`internal/config`); Compose sets them for the containers:
 |---|---|---|
 | `FROODBASE_API_ADDR` | `:8080` | Listen address of `froodbase-api` |
 | `FROODBASE_DATABASE_URL` | none, required | PostgreSQL connection URL (`postgres://user:password@host:port/db?sslmode=disable`) read by `froodbase-api` and `froodbase-dreamer`; its value is never logged |
+| `FROODBASE_USERS_FILE` | none, required by `froodbase-api` | Path of the static users JSON file (Compose mounts `local/users.json` at `/etc/froodbase/users.json`) |

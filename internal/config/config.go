@@ -10,6 +10,7 @@ import (
 const (
 	EnvAPIAddr     = "FROODBASE_API_ADDR"
 	EnvDatabaseURL = "FROODBASE_DATABASE_URL"
+	EnvUsersFile   = "FROODBASE_USERS_FILE"
 )
 
 // DefaultAPIAddr is the listen address froodbase-api uses when
@@ -26,6 +27,8 @@ type API struct {
 	Addr string
 	// DatabaseURL is the PostgreSQL connection URL.
 	DatabaseURL string
+	// UsersFile is the path of the static users file (local MVP auth).
+	UsersFile string
 }
 
 // Dreamer is the startup configuration of froodbase-dreamer.
@@ -44,7 +47,21 @@ func LoadAPI(lookup Lookup) (API, error) {
 	if err != nil {
 		return API{}, err
 	}
-	return API{Addr: addr, DatabaseURL: dbURL}, nil
+	users, ok := lookup(EnvUsersFile)
+	if !ok || users == "" {
+		return API{}, fmt.Errorf("config: %s is not set", EnvUsersFile)
+	}
+	return API{Addr: addr, DatabaseURL: dbURL, UsersFile: users}, nil
+}
+
+// LoadMigrate reads the configuration froodbase-api migrate needs: the
+// database URL only.
+func LoadMigrate(lookup Lookup) (API, error) {
+	dbURL, err := databaseURL(lookup)
+	if err != nil {
+		return API{}, err
+	}
+	return API{DatabaseURL: dbURL}, nil
 }
 
 // LoadDreamer reads and validates the froodbase-dreamer configuration.

@@ -1,0 +1,22 @@
+{
+  "users": [
+    {
+      "username": "alice",
+      "display_name": "Alice (reviewer, demo area)",
+      "password_hash": "$2a$10$HkYVU1Ax3GXp5pXEDDp0nuhVjSJmFyDWCt.adIMwFPXzhmeJKeF5e",
+      "grants": {"demo": ["reviewer"]}
+    },
+    {
+      "username": "bob",
+      "display_name": "Bob (contributor, demo area)",
+      "password_hash": "$2a$10$HkYVU1Ax3GXp5pXEDDp0nuhVjSJmFyDWCt.adIMwFPXzhmeJKeF5e",
+      "grants": {"demo": ["contributor"]}
+    },
+    {
+      "username": "carol",
+      "display_name": "Carol (reader, demo area)",
+      "password_hash": "$2a$10$HkYVU1Ax3GXp5pXEDDp0nuhVjSJmFyDWCt.adIMwFPXzhmeJKeF5e",
+      "grants": {"demo": ["reader"]}
+    }
+  ]
+}
