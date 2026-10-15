@@ -1,4 +1,4 @@
-.PHONY: build test lint vet fmt validate clean up down logs migrate migrate-status
+.PHONY: build test test-integration lint vet fmt validate clean up down logs migrate migrate-status
 
 BINARIES := froodbase-mcp froodbase-api froodbase-dreamer
 VERSION  ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
@@ -17,6 +17,11 @@ build:
 
 test:
 	go test -race -cover ./...
+
+# Integration tests start a disposable PostgreSQL through Testcontainers;
+# Docker is their only prerequisite.
+test-integration:
+	go test -race -count=1 -tags integration ./...
 
 vet:
 	go vet ./...

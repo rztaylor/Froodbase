@@ -15,6 +15,14 @@ scripts/validate.sh
 
 Runs vet, lint, race tests and builds all three binaries into `bin/`. Individual targets: `make vet`, `make lint`, `make test`, `make build`.
 
+Integration tests need Docker and are kept out of that gate:
+
+```bash
+make test-integration
+```
+
+They are tagged `integration` and get their database from `internal/store/storetest`, which starts one `pgvector/pgvector:pg16` container per test binary, migrates a template database once, and clones it for each test (`storetest.Pool`) or gives an empty one (`storetest.EmptyPool`). Nothing is shared between tests and nothing touches the Compose stack. CI runs them in the `integration` job on every pull request.
+
 ## Running the local stack with Compose
 
 `compose.yaml` at the repository root runs PostgreSQL 16 (image `pgvector/pgvector:pg16`, which ships pgvector; `pg_trgm` and `btree_gist` are contrib extensions in the same image), `froodbase-api` and `froodbase-dreamer`. The two server images are built from the root `Dockerfile` with the same version ldflags as `make build`. `froodbase-mcp` is not part of the stack; it runs on the host once slice 0 adds it.
