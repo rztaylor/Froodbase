@@ -1,5 +1,13 @@
 .PHONY: build test test-integration lint vet fmt validate clean up down logs migrate migrate-status
 
+# Pure Go: binaries are built with cgo off (as in the Dockerfile), so no C
+# compiler is needed and macOS never shows its developer-tools prompt. The
+# race detector in `make test` needs cgo on Linux but not on macOS, so tests
+# disable cgo on Darwin only.
+ifeq ($(shell uname -s),Darwin)
+export CGO_ENABLED := 0
+endif
+
 BINARIES := froodbase-mcp froodbase-api froodbase-dreamer
 VERSION  ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
 COMMIT   ?= $(shell git rev-parse --short HEAD 2>/dev/null || echo unknown)
@@ -12,7 +20,7 @@ build:
 	@mkdir -p bin
 	@for b in $(BINARIES); do \
 		echo "building $$b"; \
-		go build -trimpath -ldflags "$(LDFLAGS)" -o bin/$$b ./cmd/$$b || exit 1; \
+		CGO_ENABLED=0 go build -trimpath -ldflags "$(LDFLAGS)" -o bin/$$b ./cmd/$$b || exit 1; \
 	done
 
 test:
