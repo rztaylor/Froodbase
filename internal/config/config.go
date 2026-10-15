@@ -11,6 +11,7 @@ const (
 	EnvAPIAddr     = "FROODBASE_API_ADDR"
 	EnvDatabaseURL = "FROODBASE_DATABASE_URL"
 	EnvUsersFile   = "FROODBASE_USERS_FILE"
+	EnvDreamerAddr = "FROODBASE_DREAMER_ADDR"
 	EnvAPIURL      = "FROODBASE_API_URL"
 	EnvUsername    = "FROODBASE_USERNAME"
 	EnvPassword    = "FROODBASE_PASSWORD"
@@ -19,6 +20,10 @@ const (
 // DefaultAPIAddr is the listen address froodbase-api uses when
 // FROODBASE_API_ADDR is unset.
 const DefaultAPIAddr = ":8080"
+
+// DefaultDreamerAddr is the health listen address of froodbase-dreamer when
+// FROODBASE_DREAMER_ADDR is unset.
+const DefaultDreamerAddr = ":8081"
 
 // Lookup reads one environment variable. os.LookupEnv satisfies it; tests pass
 // a map-backed function.
@@ -36,6 +41,8 @@ type API struct {
 
 // Dreamer is the startup configuration of froodbase-dreamer.
 type Dreamer struct {
+	// Addr is the TCP address of the health endpoint.
+	Addr string
 	// DatabaseURL is the PostgreSQL connection URL.
 	DatabaseURL string
 }
@@ -101,11 +108,15 @@ func LoadMigrate(lookup Lookup) (API, error) {
 
 // LoadDreamer reads and validates the froodbase-dreamer configuration.
 func LoadDreamer(lookup Lookup) (Dreamer, error) {
+	addr, ok := lookup(EnvDreamerAddr)
+	if !ok || addr == "" {
+		addr = DefaultDreamerAddr
+	}
 	dbURL, err := databaseURL(lookup)
 	if err != nil {
 		return Dreamer{}, err
 	}
-	return Dreamer{DatabaseURL: dbURL}, nil
+	return Dreamer{Addr: addr, DatabaseURL: dbURL}, nil
 }
 
 // databaseURL requires FROODBASE_DATABASE_URL to be a postgres:// or

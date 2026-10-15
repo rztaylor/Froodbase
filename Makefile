@@ -57,7 +57,7 @@ logs:
 # Migrations run from the api image inside the Compose network, so the
 # container's FROODBASE_DATABASE_URL applies and nothing else is configured.
 migrate: .env local/users.json
-	docker compose run --rm --no-deps --build api migrate
+	docker compose run --rm --build migrate
 
 migrate-status: .env local/users.json
-	docker compose run --rm --no-deps api migrate --status
+	docker compose run --rm migrate migrate --status

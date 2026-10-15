@@ -26,15 +26,15 @@ func TestMigrateIsIdempotent(t *testing.T) {
 	}
 	defer pool.Close()
 
-	if _, err := pool.Migrate(ctx); err != nil {
+	if _, _, err := pool.Migrate(ctx); err != nil {
 		t.Fatal(err)
 	}
-	again, err := pool.Migrate(ctx)
+	again, riverAgain, err := pool.Migrate(ctx)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(again) != 0 {
-		t.Fatalf("second run applied %v, want nothing", again)
+	if len(again) != 0 || riverAgain != 0 {
+		t.Fatalf("second run applied %v and %d River steps, want nothing", again, riverAgain)
 	}
 
 	statuses, err := pool.Status(ctx)
@@ -45,6 +45,9 @@ func TestMigrateIsIdempotent(t *testing.T) {
 		if !s.Applied {
 			t.Errorf("migration %d (%s) not applied", s.Version, s.Source)
 		}
+	}
+	if statuses[len(statuses)-1].Source != RiverSource {
+		t.Errorf("last status = %+v, want the River entry", statuses[len(statuses)-1])
 	}
 
 	var n int

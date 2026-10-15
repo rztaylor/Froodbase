@@ -27,6 +27,7 @@ const openTimeout = 10 * time.Second
 // Pool is the process-wide PostgreSQL connection pool.
 type Pool struct {
 	pool *pgxpool.Pool
+	jobs *JobInserter
 }
 
 // Open connects to PostgreSQL with the given URL and verifies the connection
@@ -47,7 +48,14 @@ func Open(ctx context.Context, databaseURL string) (*Pool, error) {
 		pool.Close()
 		return nil, fmt.Errorf("store: connecting to PostgreSQL: %w", redact(err))
 	}
-	return &Pool{pool: pool}, nil
+	p := &Pool{pool: pool}
+	jobs, err := newJobInserter(p)
+	if err != nil {
+		pool.Close()
+		return nil, err
+	}
+	p.jobs = jobs
+	return p, nil
 }
 
 // Close releases every connection.
@@ -79,27 +87,36 @@ type MigrationStatus struct {
 	AppliedAt time.Time
 }
 
-// Migrate applies every pending migration in version order. Running it again
-// with nothing pending is a no-op. It returns the versions applied.
-func (p *Pool) Migrate(ctx context.Context) ([]int64, error) {
+// Migrate applies every pending migration in version order, then River's
+// job queue schema. Running it again with nothing pending is a no-op. It
+// returns the goose versions applied; River steps applied are counted in
+// the second result.
+func (p *Pool) Migrate(ctx context.Context) ([]int64, int, error) {
 	provider, db, err := p.provider()
 	if err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 	defer func() { _ = db.Close() }()
 	results, err := provider.Up(ctx)
 	if err != nil {
-		return nil, fmt.Errorf("store: applying migrations: %w", err)
+		return nil, 0, fmt.Errorf("store: applying migrations: %w", err)
 	}
 	versions := make([]int64, 0, len(results))
 	for _, r := range results {
 		versions = append(versions, r.Source.Version)
 	}
-	return versions, nil
+	riverSteps, err := p.migrateRiver(ctx)
+	if err != nil {
+		return nil, 0, err
+	}
+	return versions, riverSteps, nil
 }
 
+// RiverSource is the Source reported by Status for River's own schema.
+const RiverSource = "river (job queue schema)"
+
 // Status lists every embedded migration with its applied state, in version
-// order.
+// order, followed by one entry for River's schema version.
 func (p *Pool) Status(ctx context.Context) ([]MigrationStatus, error) {
 	provider, db, err := p.provider()
 	if err != nil {
@@ -119,6 +136,11 @@ func (p *Pool) Status(ctx context.Context) ([]MigrationStatus, error) {
 			AppliedAt: s.AppliedAt,
 		})
 	}
+	rv, err := p.riverVersion(ctx)
+	if err != nil {
+		return nil, err
+	}
+	out = append(out, MigrationStatus{Version: int64(rv), Source: RiverSource, Applied: rv > 0})
 	return out, nil
 }
 
