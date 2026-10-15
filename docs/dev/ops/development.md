@@ -2,7 +2,7 @@
 
 ## Prerequisites
 
-- Go matching the `go` directive in `go.mod`. No C compiler: Froodbase is pure Go and every build and test runs with cgo disabled, so macOS never needs Xcode or its Command Line Tools for this repository.
+- Go matching the `go` directive in `go.mod`. Froodbase is pure Go: binaries are built with cgo disabled, and on macOS the tests run that way too, so a Mac never needs Xcode or its Command Line Tools for this repository. On Linux the race detector used by `make test` needs a C compiler (CI runners have one).
 - golangci-lint v2 (`brew install golangci-lint`).
 - Docker with Compose v2 (`docker compose`) for the local stack and, later, the Testcontainers integration suite. Not needed for `scripts/validate.sh`.
 - Cloud move: Azure CLI for Entra app registration.

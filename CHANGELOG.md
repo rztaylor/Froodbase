@@ -6,7 +6,7 @@ All notable changes to Froodbase are recorded here. The format follows Keep a Ch
 
 ### Fixed
 
-- Building or testing on a Mac without Xcode's Command Line Tools no longer triggers Apple's developer-tools prompt: cgo is disabled in the Makefile, the validation script and CI.
+- Building or testing on a Mac without Xcode's Command Line Tools no longer triggers Apple's developer-tools prompt: binaries build with cgo disabled everywhere, and on macOS the tests do too.
 
 ### Added
 

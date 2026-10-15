@@ -7,8 +7,12 @@ cd "$(dirname "$0")/.."
 
 export GOCACHE="${GOCACHE:-$PWD/.cache/go-build}"
 export GOFLAGS="${GOFLAGS:--mod=mod}"
-# Pure Go: no C compiler needed; keeps macOS from asking for Xcode's tools.
-export CGO_ENABLED=0
+# Pure Go. Binaries build with cgo off (see the Makefile); the race detector
+# needs cgo on Linux but not on macOS, so cgo is disabled on Darwin only and
+# macOS never asks for Xcode's tools.
+if [ "$(uname -s)" = Darwin ]; then
+  export CGO_ENABLED=0
+fi
 
 echo "==> go vet"
 go vet ./...
