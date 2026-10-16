@@ -2,7 +2,7 @@
 
 Status: approved scope (board decision, 14 October 2026). Narrows the [implementation plan](04-implementation-plan.md) to what is built first and where it runs. The [product requirements](01-product-requirements.md), [technical requirements](02-technical-requirements.md) and [architecture design](03-architecture-design.md) remain the reference; this document records what the MVP takes from them, what it replaces for local running, and what it defers.
 
-Date: 14 October 2026.
+Date: 14 October 2026. Revised 16 October 2026 to clarify source provenance and reviewer inspection.
 
 ## 1. Purpose
 
@@ -94,7 +94,7 @@ Exit: `make up` starts the stack from a clean checkout; Claude calls `whoami` th
 
 | Binary | Delivers |
 |---|---|
-| `froodbase-api` | Schema for knowledge areas, entities, entity names, observation assertions, evidence with roots, claim evidence, contributions and contribution claims, revisions, audit events; row-level security on the caller's areas; `propose_contribution` for entities, observations and evidence (proposed state, idempotency key); `get_record`; `get_history`; `search` with the identifier and full-text channels |
+| `froodbase-api` | Schema for knowledge areas, entities, entity names, observation assertions, evidence with roots and versioned references to living sources, claim evidence, contributions and contribution claims, revisions, audit events; row-level security on the caller's areas; `propose_contribution` for entities, observations and evidence (proposed state, idempotency key); `get_record`; `get_history`; `search` with the identifier and full-text channels |
 | `froodbase-mcp` | The same tools |
 | `froodbase-dreamer` | Full-text and trigram index maintenance job enqueued in the write transaction (the outbox pattern, D5) |
 
@@ -124,11 +124,11 @@ Exit: "what depends on X" is answered from relationships without text matching; 
 
 | Binary | Delivers |
 |---|---|
-| `froodbase-api` | Lifecycle state machine with role checks; `review_contribution` (accept, reject, dispute, supersede); `verify_record`; conflict classifier on write producing change-over-time, scope, correction or dispute outcomes; acceptance policy table defaulting to review; base-revision conflicts; derivation links; `explain_answer`; the `insufficient_evidence` flag; pagination with cursors |
+| `froodbase-api` | Lifecycle state machine with role checks; `review_contribution` (accept, reject, dispute, supersede); `verify_record`; an area-scoped way for reviewers to inspect every contribution and individual claim, including accepted ones, and flag a claim for reconsideration; conflict classifier on write producing change-over-time, scope, correction or dispute outcomes; acceptance policy table defaulting to review; base-revision conflicts; derivation links; `explain_answer`; the `insufficient_evidence` flag; pagination with cursors |
 | `froodbase-mcp` | The same tools |
 | `froodbase-dreamer` | Reconsideration job walking derivation links and setting `needs_reconsideration` |
 
-Exit: two concurrent writers on one record, the second is rejected with the current revision; overlapping incompatible observations produce a dispute and both stay retrievable; a supersession removes the old record from current search immediately and flags its derived inference for review; `explain_answer` lists every candidate and the rule that kept or dropped it.
+Exit: two concurrent writers on one record, the second is rejected with the current revision; overlapping incompatible observations produce a dispute and both stay retrievable; a supersession removes the old record from current search immediately and flags its derived inference for review; a reviewer can inspect and flag an accepted claim without silently changing its state; `explain_answer` lists every candidate and the rule that kept or dropped it.
 
 ### Slice 5: evaluation corpus
 

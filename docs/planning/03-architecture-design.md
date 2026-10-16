@@ -1,8 +1,8 @@
 # Froodbase: architecture design
 
-Status: draft for architecture review. Satisfies the [technical requirements](02-technical-requirements.md) (`TR-nn`). Decisions are recorded in section 11 so they can be challenged individually. Section 15 records what was adapted from Graphiti and Hindsight, with the detail in the [reuse research](06-reuse-research-graphiti-hindsight.md).
+Status: draft for architecture review. Satisfies the [technical requirements](02-technical-requirements.md) (`TR-nn`). Decisions are recorded in section 11 so they can be challenged individually. Section 15 records what was adapted from Graphiti and Hindsight, with the detail in the [reuse research](06-reuse-research-graphiti-hindsight.md). The incremental OpenBrain assessment is in [its own research note](08-reuse-research-openbrain.md).
 
-Date: 13 October 2026. Revised 14 October 2026: Go as the implementation language, three binaries, and the Graphiti and Hindsight research folded in.
+Date: 13 October 2026. Revised 14 October 2026 for Go, the three binaries, Graphiti and Hindsight; revised 16 October 2026 for living-source extraction, continuous review and OpenBrain findings.
 
 ## 1. Design principles
 
@@ -14,6 +14,8 @@ Date: 13 October 2026. Revised 14 October 2026: Go as the implementation languag
 6. **Small surface.** A finite MCP tool set, one database, one Go module. Anything larger must earn its place in the pilot.
 7. **One module, three binaries.** A local MCP binary on each computer, a remote API, and a background "dreamer" share the same Go packages for the domain rules, so there is one definition of validity, scope overlap and authorisation.
 8. **Adapt designs, not runtimes.** Graphiti and Hindsight contribute proven shapes (bitemporal edges, episodes as provenance, deterministic entity resolution, hybrid recall, citation-validated synthesis). Their write-path automation is deliberately not reproduced.
+9. **Extract from living sources.** Repositories, Confluence pages and other documents remain in their source systems. Froodbase stores evidenced records and versioned source references. A copy is retained only by an explicit, justified choice.
+10. **Human oversight remains available.** Reviewers can inspect the full contribution history, including accepted claims, and flag individual claims for reconsideration without rewriting their past state.
 
 ## 2. System context
 
@@ -50,13 +52,13 @@ flowchart LR
     S -- "managed identity" --> P
     S -. "embeddings, reflection" .-> M
     S -- "audit, metrics" --> L
-    S -. "cites, never copies" .-> G
+    S -. "normally cites" .-> G
     S -. "cites" .-> J
     S -. "cites" .-> T
     S -. "cites" .-> C
 ```
 
-Froodbase stores claims and evidence *references*. It does not mirror repositories, tickets or telemetry. Local investigation reports are outside the boundary unless a person explicitly ingests one.
+Froodbase stores claims and evidence *references*. It does not mirror repositories, Confluence pages, tickets or telemetry. A source reference names a stable location and revision where available, with a precise locator or short excerpt so a reviewer can check what supported extraction. If a source changes or disappears, its historical claim remains; detected loss or change of support is a review signal, not an inferred change to validity. Local investigation reports stay outside the boundary until a person explicitly shares extracted findings. Retaining their original body, or another document body, is an additional, separately approved option with a stated benefit and matching access class.
 
 ## 3. Binaries and containers
 
@@ -157,6 +159,7 @@ Component responsibilities:
 - **Contribution engine.** Validates evidence (TR-61), resolves entities through deterministic tiers and raises merge proposals for anything fuzzier, classifies conflicts (TR-41), applies acceptance policy (TR-43) and writes the change set atomically with revisions, River jobs and audit events. The conflict classifier is a detector only: the interval-overlap test adapted from Graphiti and, where a model is used, Graphiti's conservative contradiction rules produce a dispute record. Nothing ever writes `valid_to` on an existing record except a reviewer's supersession with a stated end date.
 - **Review and lifecycle engine.** State transitions with role checks, base-revision checks and rationale capture.
 - **Report ingestion.** Two-step preview and commit (TR-62). Preview is pure: it computes the change set and returns it without writing.
+- **Contribution oversight.** Area-scoped queries join each contribution to its individual claims, revisions, source references, review flags and decisions, including accepted and historical records. A reviewer can flag one claim with a reason; its accepted state remains until a later authorised decision. Operational audit events retain who did what, while the contribution and revision records retain what knowledge was entered and how it was judged (TR-45, TR-75).
 
 ## 5. Data model
 
@@ -261,9 +264,17 @@ erDiagram
         text source_kind
         text source_uri
         text source_revision
+        text source_locator
         text excerpt
         text access_class
         uuid root_evidence_id
+        text importer_name
+        text importer_version
+        text extraction_version
+        text content_fingerprint
+        text input_digest
+        text original_author
+        text attribution_status
         timestamptz observed_at
         timestamptz recorded_at
     }
@@ -325,11 +336,13 @@ Notes on the model:
 
 - **Scope** is a JSONB object with fixed keys (`environment`, `region`, `version_min`, `version_max`, `cluster`, `tenant`). A missing key means unspecified. Overlap is computed by a SQL function so the conflict classifier and the mode filter use the same definition (TR-26).
 - **Evidence roots.** `root_evidence_id` points at the original observation when an evidence record is itself a restatement (for example a report excerpt quoting a telemetry query). Corroboration counts distinct roots (TR-25).
+- **Living-source extraction.** A repository commit and path, Confluence page ID and version, or equivalent stable source reference identifies the material examined. `source_locator` can name a line range or section; a short excerpt may preserve the basis for a historical claim when the live source changes. Importer and extractor identity/version and optional input digest belong to contribution or evidence provenance. A content fingerprint suggests duplicate claims but never merges independent evidence roots. Original-author attribution is separate from the authenticated contributor and may remain unknown (TR-24, TR-65). Original document bodies are absent unless source-copy retention was chosen under TR-28.
 - **Revisions** hold a full JSONB snapshot of the record at each change. This makes `get_history` and `get_as_of` by recording time trivial, and keeps the live tables narrow.
 - **Validity-time queries** use a GiST index on `tstzrange(valid_from, valid_to)` combined with lifecycle state (TR-34).
 - **Full-text** uses a generated `tsvector` column with an English configuration plus a trigram index on entity names for near-miss matching (TR-51).
 - **Embeddings** are nullable; the row is committed before the dreamer fills them (TR-58).
 - **Contribution as episode.** Each `propose_contribution` or `ingest_report` commit is a `contribution` record (who, acting agent, client, investigation id, recorded time) and a `contribution_claims` join lists every record it asserted or re-asserted. This is Graphiti's episode-to-edge provenance, with the contribution's recording time kept separate from any validity date.
+- **Queryable knowledge history.** The contribution, claim and revision records remain available to authorised area reviewers independently of the 400-day operational audit-event retention. Filtered, paginated reads include proposed, accepted, disputed, rejected and superseded claims. Review flags and their reasons are appended to history and enter the due-for-review queue without altering the claim's validity or acceptance. Per-area authorisation applies before counts, joins and source excerpts (TR-45, TR-75).
 - **Entity aliases and reversible merges.** `entity_alias` holds every name an entity has carried and, after a merge, which entity id was folded into which with the curator's rationale. A merge never rewrites claims; it records an alias, so it can be undone. Neither Graphiti nor Hindsight can un-merge.
 - **Relationship types with cardinality.** `relationship_type` holds the allowed (source type, target type) pairs and whether the predicate is single-valued (one owner) or multi-valued (many dependencies). Cardinality is what lets the conflict classifier tell "replaced" from "added"; its absence is the root of Graphiti's mis-retirement issue.
 - **Causal links.** A `caused_by` link between assertions, proposed by a contributor and reviewed like any claim, supports lessons. It is the one Hindsight link type adopted; semantic links are a rebuildable projection and are deferred.
@@ -449,14 +462,18 @@ sequenceDiagram
     MCP-->>Ag: proposed change set and destination area
     Ag-->>U: shows every record that would be created
     U->>Ag: approves, possibly removing items
-    Ag->>MCP: ingest_report(commit, change set, idempotency key)
-    MCP->>API: propose_contribution(change set)
+    opt source copy has a stated benefit
+        Ag-->>U: shows copy, destination and access class
+        U->>Ag: separately approves retaining the copy
+    end
+    Ag->>MCP: ingest_report(commit, change set, optional approved copy, idempotency key)
+    MCP->>API: propose_contribution(change set, optional approved copy)
     API-->>MCP: record ids and states
     MCP-->>Ag: result
     Ag-->>U: confirmation, local report unchanged
 ```
 
-The report body never leaves the machine during preview; `froodbase-mcp` parses it locally and asks `froodbase-api` only to resolve entity names and confirm permission. The commit step sends the approved change set, not the raw report, unless the user chose to store the report revision itself.
+The report body never leaves the machine during preview; `froodbase-mcp` parses it locally and asks `froodbase-api` only to resolve entity names and confirm permission. The normal commit sends the approved extracted change set with shareable source references. A copy of the report is sent only if the preview also explains the benefit of retaining it and the user separately approves its content, destination and access classification. Claims do not need a retained report revision and must still have shareable evidence. A retained copy is another representation of the same evidence root, not corroboration.
 
 ## 8. Retrieval design in detail
 
@@ -469,7 +486,10 @@ The report body never leaves the machine during preview; `froodbase-mcp` parses 
 | Authorisation filter | RLS plus application check on `area_id` and `access_class` | Defence in depth; RLS alone can be bypassed by privileged roles |
 | Mode filter | SQL predicate over lifecycle state and validity range | Current, as-of and historical semantics live in one function used by every channel |
 | Fusion | Reciprocal rank fusion across channels (k of 60, as both reference projects use), then boosts for `verified`, corroboration by distinct evidence roots, and scope match; no recency boost in current mode; no mention-count boost | Prevents "newer text wins". Graphiti's episode-mentions reranker and Hindsight's `proof_count` boost both reward restatement, so they are deliberately not reproduced |
-| Explanation | Per-candidate record of channel hits, filter outcomes and final rank, stored for the request id | Supports `explain_answer` and the evaluation harness |
+| Explanation | Per-authorised-candidate record of channel hits, mode-filter outcomes and final rank, stored for the request id | Supports `explain_answer` and the evaluation harness without revealing inaccessible candidate identities or counts |
+| Outcome feedback | Append-only used, ignored or inapplicable report linked to the request and exact returned revision, with caller and reason | Separates ranking success from evidence that actually helped; feedback never counts as corroboration or changes acceptance by itself (TR-59) |
+
+The same provenance links support two reviewer questions: which sources support this claim, and which derived records would need reconsideration if it changed? Traverse only records the caller may see, bound the depth and result count, and say when the view was truncated. These are views over existing derivation records, not a separate graph store. A source version change detected during later extraction or checking raises a review flag; it does not infer when the underlying claim ceased to be valid (PR-14, PR-100).
 
 ## 9. The dreamer: reflection and routine maintenance
 
@@ -503,6 +523,7 @@ Three rules keep reflection honest:
 - The synthesis prompt receives record identifiers and bodies; the output must cite identifiers it was given. The dreamer keeps the set of identifiers it showed the model and strips any citation outside that set, then discards an output left with no valid citations. This is Hindsight's `available_ids` and `drop_unseen_ids` discipline.
 - Corroboration shown to the model is computed from evidence roots, so three restatements of one observation are presented as one.
 - Output is a proposed lesson or inference with derivation links. It never updates or deletes an existing record. Hindsight's consolidation asks its model for creates, updates and deletes and applies them; Froodbase keeps the bookkeeping (`consolidated_at` watermark per source record, source identifiers on the proposal, history rows) and drops the mutation.
+- Review asks separately whether cited records exist, are relevant and sufficiently support the conclusion. Deterministic citation checks enforce structural validity; a model may help prioritise review but cannot establish sufficiency as a fact or accept its own output. Store the policy and prompt version, source revisions and rationale with model-assisted findings (TR-85).
 
 ### 9.1 Knowledge views
 
@@ -547,7 +568,7 @@ Agents never hold a standalone Contributor role; they act on behalf of a person 
 | D6 | Finite MCP tool set, no query language | Exposed SQL or GraphQL | Assessment and safety rules: no arbitrary SQL from agents |
 | D7 | Authorisation in application plus RLS | RLS only; application only | RLS is bypassable by table owners; application-only is one bug from a leak |
 | D8 | Reflection as a budgeted batch job writing proposals | Synchronous reflection tool; auto-accepted summaries | Keeps model cost bounded and keeps generated text non-authoritative |
-| D9 | Report ingestion as preview then commit | Single-step ingestion; automatic ingestion on report generation | Pitch: reports remain local; the user sees what crosses the boundary |
+| D9 | Report ingestion as preview then commit | Single-step ingestion; automatic ingestion on report generation | Reports remain local until explicit sharing; the user sees extracted records and separately approves any original copy that crosses the boundary |
 | D10 | Adapt designs from Graphiti and Hindsight; adopt neither runtime nor service | Adopt Hindsight as a service; adopt Graphiti; build with no reference | Research on 14 Oct 2026 (section 15): Graphiti has no PostgreSQL backend and its maintainers closed the request; Hindsight's open-source auth is one shared key per schema with no per-caller permission; both apply model decisions to the write path in ways Froodbase forbids. Both are Python, so no code reuse into Go in any case |
 | D12 | Go, one module, three binaries (`froodbase-mcp`, `froodbase-api`, `froodbase-dreamer`) | Single service with remote MCP only; separate repositories per binary | Team language. Shared packages give one implementation of validity, scope and authorisation rules. The local binary keeps reports local during preview and simplifies client sign-in |
 | D13 | Entity merges are recorded as aliases and are reversible; the model tier of entity resolution only proposes | Graphiti-style uuid rewrite; Hindsight-style irreversible merge | Both reference projects document false-merge risk and neither can undo one |
