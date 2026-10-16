@@ -45,7 +45,7 @@ flowchart LR
 |---|---|---|---|
 | **froodbase-mcp** | On each engineer's computer, started by the editor | Your library card | Knows who you are (it signs you in once and remembers), carries your questions to the front desk, and does one job entirely at home: when you want to share findings from a report, it reads the report on your machine and shows you exactly what would be sent before anything leaves. If the library is closed, it tells your agent plainly so the agent can carry on with what it has locally. |
 | **froodbase-api** | In Azure | The front desk | Checks your card, works out which shelves you may see, answers questions, files contributions, and writes every transaction in the ledger. |
-| **froodbase-dreamer** | In Azure, in the background | The night shift | Does everything that does not need someone waiting: re-indexing, flagging conclusions whose evidence changed, sweeping for records due for review, looking for gaps, drafting consolidated lessons, and regenerating the readable summaries. It never speaks for itself; everything it drafts goes to a person. |
+| **froodbase-dreamer** | In Azure, in the background | The night shift | Does everything that does not need someone waiting: re-indexing, reassessing support when evidence changes, sweeping for records due for review, looking for gaps, drafting consolidated lessons, and regenerating readable summaries. Its drafts start proposed and are assessed by area policy or a person before acceptance. |
 
 The name "dreamer" is a reminder of what sleep does for memory: consolidating the day's experiences, linking them to older ones, and tidying up, without creating new facts about the world.
 
@@ -130,7 +130,9 @@ An analogy: if you hear a rumour from three friends who all heard it from the sa
 Anything Froodbase or an agent *concluded* (an inference, a consolidated lesson, a reflection summary) is stored with links to everything it was concluded from. Two consequences follow:
 
 1. You can always see the working.
-2. If any input changes (a source is corrected or superseded), the derived record is automatically flagged **needs reconsideration** and lands in a reviewer's queue. The conclusion does not quietly outlive its evidence.
+2. If any input changes (a source is corrected or superseded), Froodbase reassesses support and flags a derived record **needs reconsideration** when support is lost or uncertain. The conclusion does not quietly outlive its evidence.
+
+Three labels answer different questions. **Kind** says whether the statement was observed, decided or inferred. **Support** says whether distinct, relevant evidence roots sufficiently support it, or whether support is weak or challenged. **Lifecycle** says whether the claim is proposed, accepted, verified, disputed or superseded. Froodbase can attach new independent evidence and strengthen support automatically without changing an inference into an observation. It records every assessment so a person can see why support changed.
 
 ## 5. Change history: never erase, only add
 
@@ -141,8 +143,8 @@ The important lifecycle moves are:
 | Move | What it means | Who can do it |
 |---|---|---|
 | **Propose** | A new claim enters, not yet trusted | Any contributor, any agent on their behalf |
-| **Accept** | A reviewer, or a pre-agreed policy for narrow cases, says this is good enough to use | Reviewer, or policy |
-| **Verify** | Someone re-checked it against fresh evidence on a known date | Reviewer |
+| **Accept** | A reviewer or a pre-agreed area policy finds the evidence sufficient for the claim's kind and scope | Reviewer, or policy |
+| **Verify** | Fresh evidence was checked on a known date | Reviewer, or policy |
 | **Dispute** | Two accepted claims overlap in scope and time and disagree | Raised automatically, resolved by a reviewer |
 | **Supersede** | A newer claim replaces an older one, with a stated reason | Reviewer |
 | **Reject** | A proposed claim is declined, with a reason | Reviewer |
@@ -165,9 +167,9 @@ A superseded record is not deleted. It is history. A current-state question skip
 
 A reviewer can also inspect the complete contribution history for their knowledge area whenever they wish, including accepted claims that are not currently in a review queue. They can flag one claim with a reason if its source, scope or conclusion looks doubtful. The flag brings it to review without silently undoing its earlier acceptance. This history shows *what knowledge entered and why*; the operational audit log separately records *who performed each action*.
 
-### Why "generated" never means "accepted"
+### Why "generated" never means "accepted by itself"
 
-Agents and reflection jobs can write fluent, confident prose. Froodbase treats that fluency as irrelevant to trust. Anything generated enters as *proposed* and stays there until a person, or a deliberately narrow policy, accepts it. The pitch calls this out directly: synthesis must not become authoritative merely because it was generated.
+Agents and reflection jobs can write fluent, confident prose. Froodbase treats that fluency as irrelevant to trust. Anything generated enters as *proposed*. A person may accept it, or a versioned knowledge-area policy may accept it when independently rooted evidence passes its relevance and sufficiency checks. The policy, evidence revisions and reason are recorded. If a causal deduction cannot be checked reliably, it waits for a reviewer. It remains labelled an inference even after acceptance. A reviewer can inspect or flag it later, so review is oversight and exception handling rather than a gate on every record.
 
 ### Concurrency: no silent overwrites
 
@@ -320,10 +322,10 @@ flowchart LR
     I["Investigation<br/>(agent + person)"] --> RPT["Local report<br/>Markdown on the user's machine<br/>context, evidence, conclusions,<br/>possibly sensitive"]
     I --> CS["Froodbase change set<br/>only shareable findings<br/>with shareable evidence"]
     RPT -. "never uploaded automatically" .-> B[("Froodbase")]
-    CS -- "proposed, within permissions" --> B
+    CS -- "checked by area policy, within permissions" --> B
 ```
 
-The report is the user's. It can contain anything. Nothing in it reaches Froodbase unless the user explicitly asks to share it, and even then they see a preview of exactly which records would be created and where, with unshareable items (like local file paths) already removed. The preview is produced by froodbase-mcp on the user's own computer; the only things it asks the server are "do these names match known entities?" and "may this person write to this area?". The usual result is extracted records with evidence references. Keeping a copy of the original report is an extra choice, offered only when its benefit and access classification are clear. Hypotheses go in as *proposed inferences*, never as accepted facts.
+The report is the user's. It can contain anything. Nothing in it reaches Froodbase unless the user explicitly asks to share it, and even then they see a preview of exactly which records would be created and where, with unshareable items (like local file paths) already removed. The preview is produced by froodbase-mcp on the user's own computer; the only things it asks the server are "do these names match known entities?" and "may this person write to this area?". The usual result is extracted records with evidence references. Keeping a copy of the original report is an extra choice, offered only when its benefit and access classification are clear. Hypotheses enter as *proposed inferences*. Extraction alone cannot accept them; later independent evidence may qualify them under an explicit area policy.
 
 ### What a lesson looks like
 
@@ -341,11 +343,11 @@ The last section is what stops a lesson from becoming a trap. "Restart the inges
 
 ### Acceptance policy: automation without abdication
 
-Each knowledge area decides what can be accepted automatically. A sensible starting policy: observations from a named agent, with a verifiable source, in that agent's own area, may be auto-accepted; everything else waits for a reviewer; inferences and reflection output *never* auto-accept. The default, when no rule matches, is review. This gives useful automation for the boring, well-evidenced cases while keeping judgement calls with people.
+Each knowledge area decides what can be accepted automatically. A starting policy can auto-accept observations from a named agent with a verifiable source in its own area. A policy can also accept an inference after independent evidence arrives, but only if its stated tests for source authority, relevance, scope, time and sufficiency can be checked. A correlation alone, repeated summaries of one source or the model's confidence cannot pass those tests. If no rule matches, the claim stays proposed for review. Every policy decision has a version, evidence set and reason; people set policy and handle exceptions, disputes and corrections rather than approving every record.
 
 ## 10. Reflection: what the dreamer does at night
 
-Reflection is Froodbase stepping back from individual records to ask what they add up to. It is the dreamer's job: it runs in the background, per knowledge area, with a budget, and it produces *proposals*, never accepted facts.
+Reflection is Froodbase stepping back from individual records to ask what they add up to. It is the dreamer's job: it runs in the background, per knowledge area, with a budget, and it produces *proposals*. A draft may later be accepted under an explicit area policy when independently checkable evidence is sufficient; model output alone cannot accept it.
 
 ```mermaid
 flowchart TD
@@ -360,11 +362,11 @@ flowchart TD
 Two halves:
 
 - **Gap analysis** is rule-based. It needs no model and asks simple questions: who owns this with no owner on record? Which thread has no evidence? Which lesson has never been verified in production? What has gone past its review date? What derived record has a source that changed? The output is a to-do list for curators.
-- **Consolidation** groups related records (three incidents touching the same component with similar symptoms, say) and, within a token budget, asks a model to draft a single lesson. The dreamer remembers exactly which records it showed the model; any citation outside that list is struck out, and a draft left with no valid citations is thrown away. It enters as *proposed* with derivation links to every input. The dreamer also keeps a bookmark per record of what has already been consolidated, so the same evidence is not re-read every night.
+- **Consolidation** groups related records (three incidents touching the same component with similar symptoms, say) and, within a token budget, asks a model to draft a single lesson. The dreamer remembers exactly which records it showed the model; any citation outside that list is struck out, and a draft left with no valid citations is thrown away. It enters as *proposed* with derivation links to every input. Later independent evidence may strengthen it and, if an area policy can evaluate sufficiency, qualify it for acceptance. The dreamer also keeps a bookmark per record of what has already been consolidated, so the same evidence is not re-read every night.
 
 The dreamer also maintains the **readable summaries**: Markdown pages per knowledge area, organised in folders, each generated from accepted records. It refreshes a page only when something it read has changed (it keeps a bookmark of the newest revision it saw), and it changes only the sections affected, so a diff of the page is readable. Because Froodbase never deletes, a correction or redaction is itself a new revision, so the page cannot keep claiming to be current after something it cites was withdrawn.
 
-The analogy is a team retrospective. The facilitator (gap scan) lists what is missing or overdue. The group (synthesis) connects the dots across several incidents and drafts a change to the runbook. The draft goes to the owner for approval; it does not rewrite the runbook on its own.
+The analogy is a team retrospective. The facilitator (gap scan) lists what is missing or overdue. The group (synthesis) connects the dots across several incidents and drafts a change to the runbook. The draft cannot rewrite the runbook on its own; it must meet an area policy's evidence rules or be reviewed by its owner.
 
 Reflection also respects permissions the same way retrieval does: a summary is only ever built from records its intended readers could see themselves. It never launders restricted evidence into an unrestricted conclusion.
 
@@ -372,15 +374,15 @@ Reflection also respects permissions the same way retrieval does: a summary is o
 
 Follow a single case through the whole system.
 
-1. **September 2, investigation.** The Support agent, acting for Alice, asks Froodbase in *current* mode about Import Tool callback failures and in *historical* mode for analogues. It gets one old lesson from 2025, labelled historical, applicability "staging only, unverified in prod". Alice's local report records the investigation; the agent proposes one observation ("restarts spiked at 09:14, prod, v2.3", telemetry query cited) which the area's policy auto-accepts, and one inference ("likely queue throttling") which waits for review.
+1. **September 2, investigation.** The Support agent, acting for Alice, asks Froodbase in *current* mode about Import Tool callback failures and in *historical* mode for analogues. It gets one old lesson from 2025, labelled historical, applicability "staging only, unverified in prod". Alice's local report records the investigation; the agent proposes one observation ("restarts spiked at 09:14, prod, v2.3", telemetry query cited) which the area's policy auto-accepts, and one inference ("likely queue throttling") which stays proposed because correlation alone does not establish a cause.
 
 2. **September 5, fix merged.** A DevOps agent proposes an observation that PR 418 merged, scope: repository. No conflict with anything in production; both records stand.
 
-3. **September 9, deployed and verified.** The platform reviewer verifies that v2.4 is in production and the failure no longer reproduces. They supersede the failure observation with reason "remediated in 2.4", and accept Alice's inference, now backed by the fix. A derived-record job flags nothing, because nothing else depended on the failure record yet.
+3. **September 9, deployed and verified.** New deployment and post-deploy evidence shows that v2.4 is in production and the failure no longer reproduces. Froodbase attaches the independent evidence and raises the inference's support; a policy may accept it only if its causal sufficiency tests pass, otherwise it remains proposed for a reviewer. A reviewer supersedes the failure observation with reason "remediated in 2.4". A derived-record job flags any conclusion that depended on the old observation for reconsideration.
 
 4. **October 13, late import.** Bob ingests an older investigation report he found. The preview shows Froodbase would create historical evidence valid 2 to 9 September and two hypotheses as proposed inferences; Bob removes a paragraph of customer details and commits. Current-mode queries are unchanged. As-of queries for early September now have richer evidence.
 
-5. **November, reflection.** The gap scan notes the 2025 lesson is still unverified in production. Consolidation groups the 2025 lesson, Alice's case and Bob's import and drafts a lesson: symptoms, the throttling condition, the failed restart approach, the 2.4 remedy, applicability "prod EU, v2.3 and earlier; unverified for US". It enters as proposed with links to all three sources.
+5. **November, reflection.** The gap scan notes the 2025 lesson is still unverified in production. Consolidation groups the 2025 lesson, Alice's case and Bob's import and drafts a lesson: symptoms, the throttling condition, the failed restart approach, the 2.4 remedy, applicability "prod EU, v2.3 and earlier; unverified for US". It enters as proposed with derivation links; Bob's restatement of Alice's evidence is not a second independent root.
 
 6. **December, a new engineer.** Carol asks "is the callback failure still a problem?" Current mode returns the verified 2.4 remediation and the proposed consolidated lesson, labelled proposed. She asks "why?" and sees that the September failure was excluded because it is superseded, and that the 2025 lesson was excluded from current mode because its applicability does not cover production. She can follow every citation.
 
@@ -394,13 +396,13 @@ Two open-source projects solve neighbouring problems and were studied closely be
 
 **Hindsight** (from Vectorize) stores extracted facts in PostgreSQL, finds them four ways at once (meaning, words, connections, time), merges the results, consolidates them into "observations" in the background, and writes readable knowledge pages that refresh themselves. Its retrieval and its knowledge pages are the model for Froodbase's.
 
-Where Froodbase parts company with both, it is always for the same reason: they let the machine decide and move on, and Froodbase insists a person decides.
+Where Froodbase parts company with both, it is because its automatic decisions must follow explicit area policy, preserve independent evidence and remain auditable. People govern the policy and correct exceptions.
 
 | They do this | Froodbase does this instead | Why |
 |---|---|---|
 | If a fact is in the present tense and has no date, assume it became true when it was written down | Leave the date unknown and say so | Writing-down time is not truth time (section 6) |
 | When a new fact seems to contradict an old one, the model marks the old one as ended | Record a dispute and show both until a reviewer decides | Graphiti's own issue tracker shows most automatic retirements it audited were wrong |
-| Let the model write the sentence that gets stored, and summaries of entities and clusters, and serve them immediately | Store what the contributor wrote, labelled by kind; anything generated is a proposal | Fluency is not evidence (section 5) |
+| Let the model write the sentence that gets stored, and summaries of entities and clusters, and serve them immediately | Store the generated claim as a proposal; accept it only after independently checkable evidence meets an area policy or a reviewer decides | Fluency is not evidence (section 5) |
 | Rank a fact higher the more times it has been mentioned | Count distinct sources of evidence | Three friends repeating one rumour are one source (section 4) |
 | Rank newer records higher | Rank verified and well-supported records higher | A verified fact from May beats a guess from yesterday |
 | Merge two similarly named entities automatically and permanently | Only merge on exact identity; otherwise propose, and record merges as reversible aliases | Both projects document the "short name absorbed into a bigger entity" failure |
@@ -419,6 +421,7 @@ Where Froodbase parts company with both, it is always for the same reason: they 
 | **Evidence root** | The original observation behind one or more restatements; corroboration counts roots |
 | **Derivation link** | A record of what a derived claim was concluded from; triggers reconsideration when a source changes |
 | **Provenance** | Source, contributor and time for a piece of knowledge |
+| **Support assessment** | An append-only account of which independent roots support a claim, whether they are relevant and sufficient, and which sources challenge it |
 | **Revision** | A numbered, immutable snapshot of a record at a point in time |
 | **Lifecycle state** | proposed, accepted, verified, disputed, superseded, rejected |
 | **Supersession** | A newer record replacing an older one, with reason; the old one remains as history |

@@ -59,12 +59,13 @@ The MVP is judged on these, not on feature count. From `docs/planning/01-product
 
 - Validity is never inferred from recording time (PR-21, TR-32).
 - A null end date means "not known to have ended", not "verified current" (PR-22, TR-31).
-- Contradictions become disputes; nothing automatic sets `valid_to` or lifecycle state on an existing record (PR-31, D14).
+- Contradictions become disputes; conflict detection never automatically ends validity or retires an existing record (PR-31, D14).
 - Everything is append-only with revisions (PR-32, TR-35).
 - Concurrent writers are rejected on a stale base revision; retries with the same idempotency key do not duplicate (PR-44, PR-45).
 - Permissions are enforced per human caller before retrieval, in the application and in row-level security (PR-62, TR-52, TR-71).
 - Corroboration counts distinct evidence roots (PR-12, TR-25).
-- Every result carries lifecycle state, epistemic kind, scope, validity, verification date and citations (TR-14).
+- Evidence support, epistemic kind and lifecycle state remain separate; a qualifying inference can be accepted under an explicit area policy without becoming an observation (PR-15, PR-42, TR-29, TR-43).
+- Every result carries lifecycle state, epistemic kind, support, scope, validity, verification date and citations (TR-14).
 
 ## 5. Slices
 
@@ -94,7 +95,7 @@ Exit: `make up` starts the stack from a clean checkout; Claude calls `whoami` th
 
 | Binary | Delivers |
 |---|---|
-| `froodbase-api` | Schema for knowledge areas, entities, entity names, observation assertions, evidence with roots and versioned references to living sources, claim evidence, contributions and contribution claims, revisions, audit events; row-level security on the caller's areas; `propose_contribution` for entities, observations and evidence (proposed state, idempotency key); `get_record`; `get_history`; `search` with the identifier and full-text channels |
+| `froodbase-api` | Schema for knowledge areas, entities, entity names, observation assertions, evidence with roots and versioned references to living sources, claim evidence, support assessment history, contributions and contribution claims, revisions, audit events; row-level security on the caller's areas; `propose_contribution` for entities, observations and evidence (proposed state, idempotency key); `get_record`; `get_history`; `search` with the identifier and full-text channels |
 | `froodbase-mcp` | The same tools |
 | `froodbase-dreamer` | Full-text and trigram index maintenance job enqueued in the write transaction (the outbox pattern, D5) |
 
@@ -124,11 +125,11 @@ Exit: "what depends on X" is answered from relationships without text matching; 
 
 | Binary | Delivers |
 |---|---|
-| `froodbase-api` | Lifecycle state machine with role checks; `review_contribution` (accept, reject, dispute, supersede); `verify_record`; an area-scoped way for reviewers to inspect every contribution and individual claim, including accepted ones, and flag a claim for reconsideration; conflict classifier on write producing change-over-time, scope, correction or dispute outcomes; acceptance policy table defaulting to review; base-revision conflicts; derivation links; `explain_answer`; the `insufficient_evidence` flag; pagination with cursors |
+| `froodbase-api` | Lifecycle state machine with role and area-policy checks; `review_contribution` (accept, reject, dispute, supersede); `verify_record`; an area-scoped way for reviewers to inspect every contribution and individual claim, including accepted ones, and flag a claim for reconsideration; conflict classifier on write producing change-over-time, scope, correction or dispute outcomes; versioned acceptance policy for observations and independently evidenced inferences with proposed fallback; append-only support reassessment; base-revision conflicts; derivation links; `explain_answer`; the `insufficient_evidence` flag; pagination with cursors |
 | `froodbase-mcp` | The same tools |
-| `froodbase-dreamer` | Reconsideration job walking derivation links and setting `needs_reconsideration` |
+| `froodbase-dreamer` | Reconsideration job walking derivation links, reassessing support and policy eligibility, and flagging ambiguous or weakened claims `needs_reconsideration` |
 
-Exit: two concurrent writers on one record, the second is rejected with the current revision; overlapping incompatible observations produce a dispute and both stay retrievable; a supersession removes the old record from current search immediately and flags its derived inference for review; a reviewer can inspect and flag an accepted claim without silently changing its state; `explain_answer` lists every candidate and the rule that kept or dropped it.
+Exit: two concurrent writers on one record, the second is rejected with the current revision; overlapping incompatible observations produce a dispute and both stay retrievable; a supersession removes the old record from current search immediately and triggers support reassessment of its derived inference; independent evidence can strengthen and policy-accept an inference while a duplicate echo cannot; a reviewer can inspect and flag an accepted claim without silently changing its state; `explain_answer` lists every candidate and the rule that kept or dropped it.
 
 ### Slice 5: evaluation corpus
 

@@ -1,6 +1,6 @@
 # Reuse research: Graphiti and Hindsight
 
-Status: research reference supporting the [architecture design](03-architecture-design.md) section 15 and the [implementation plan](04-implementation-plan.md). Froodbase is written in Go on PostgreSQL. Both projects are Python, so this research asks what *designs* to adapt, what to reject, and whether either is worth calling as a service. No code is copied from either.
+Status: research reference supporting the [architecture design](03-architecture-design.md) section 15 and the [implementation plan](04-implementation-plan.md). Froodbase is written in Go on PostgreSQL. Both projects are Python, so this research asks what *designs* to adapt, what to reject, and whether either is worth calling as a service. No code is copied from either. The comparison below reflects the 14 October 2026 design; the current acceptance policy allows a generated inference to be accepted under an explicit area policy after independently checkable evidence meets its sufficiency criteria ([PR-42](01-product-requirements.md)).
 
 Date: 14 October 2026.
 

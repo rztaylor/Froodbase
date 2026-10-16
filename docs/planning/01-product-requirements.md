@@ -93,6 +93,7 @@ These are the acceptance-level user stories. Each must be answerable with source
 | PR-12 | A report, an observation extracted from it and a summary derived from both count as **one** line of evidence, not three. Froodbase tracks derivation so that corroboration is not inflated. |
 | PR-13 | Derived knowledge (summaries, inferences, reflection output) is always marked as derived, cites its supporting records and is flagged for reconsideration when any supporting record changes. |
 | PR-14 | A later change to a living source does not silently rewrite a claim or its historical validity. When Froodbase detects that cited support has changed or can no longer be checked, it makes the claim's support status visible and flags it for review. |
+| PR-15 | Evidential support is tracked separately from whether a claim is an observation, decision or inference and separately from its proposed, accepted or disputed disposition. New relevant, independent evidence may strengthen support automatically in append-only history; copies, summaries and repeated mentions of one root do not. An accepted inference remains an inference, never an observation. |
 
 ### 6.3 Temporal correctness
 
@@ -121,9 +122,9 @@ These are the acceptance-level user stories. Each must be answerable with source
 
 | ID | Requirement |
 |---|---|
-| PR-40 | A contribution enters as **proposed** and moves to accepted, verified, disputed, superseded or rejected through explicit actions by authorised roles. |
-| PR-41 | Knowledge-area owners define which contribution types from which contributors are accepted automatically, and which require review. The default is review. |
-| PR-42 | Fluent synthesis is never authoritative because it was generated. Reflection output and agent inferences enter as proposed. |
+| PR-40 | A contribution enters as **proposed** and moves to accepted, verified, disputed, superseded or rejected through explicit, append-only decisions by an authorised person or a knowledge-area policy acting within its grant. Every transition records actor or policy version, time, base revision, evidence considered and rationale. |
+| PR-41 | Knowledge-area owners define which contribution types and evidence conditions permit automatic acceptance or verification and which require review. The safe fallback when no policy matches is proposed; human review is for exceptions and governed decisions, not a required step for every ingested claim. |
+| PR-42 | Fluent synthesis, repetition and a valid citation never make a claim authoritative by themselves. Reflection output and agent inferences enter as proposed. An explicit area policy may accept an inference only after independently rooted, relevant and sufficient support satisfies its recorded criteria, with no unresolved contradiction; if sufficiency cannot be evaluated reliably, it remains proposed for review. Automatic acceptance never changes its epistemic kind. |
 | PR-43 | Contributions must contain only knowledge authorised for the intended audience, and must carry shareable evidence of their own when the originating report remains private. |
 | PR-44 | Two contributors editing the same record concurrently cannot overwrite each other; the later writer is told the record changed and must rebase. |
 | PR-45 | Retries of the same contribution do not create duplicates. |
@@ -135,7 +136,7 @@ These are the acceptance-level user stories. Each must be answerable with source
 |---|---|
 | PR-50 | Generating an investigation report never uploads it, summarises it into Froodbase or embeds it automatically. |
 | PR-51 | Report ingestion is an explicit, user-initiated capability. It shows the user the destination knowledge area and the material being shared before anything is sent. |
-| PR-52 | Ingestion breaks source material into evidenced records, distinguishing observations, hypotheses and proposed conclusions, and promotes nothing to accepted knowledge by itself. Retaining the source document is not required to retain the extracted records. |
+| PR-52 | Ingestion breaks source material into evidenced records, distinguishing observations, hypotheses and proposed conclusions. Extraction alone grants no authority; the contribution path applies the area's explicit acceptance policy after evidence checks. Retaining the source document is not required to retain the extracted records. |
 | PR-53 | A Froodbase contribution does not fulfil the obligation to deliver a report, and a report does not require a Froodbase contribution. |
 | PR-54 | An original report or document may be retained only when there is a stated benefit, such as later evidential review, and the contributor explicitly chooses that option after seeing its content, destination and access classification. A retained copy does not count as independent corroboration of claims extracted from it. |
 
@@ -158,7 +159,7 @@ These are the acceptance-level user stories. Each must be answerable with source
 | PR-71 | Reflection can identify gaps: entities with no owner, relationships with no evidence, lessons never verified in a given scope, assertions past their review date. |
 | PR-72 | Reflection respects access boundaries: it never combines evidence a given reader could not see into a summary that reader can. |
 | PR-73 | The split of reasoning between the calling agent and Froodbase is configurable per operation; Froodbase must function with model-free retrieval alone. |
-| PR-74 | Review of a derived claim distinguishes whether its cited evidence exists, is relevant and sufficiently supports the conclusion. A valid citation alone is not proof that the conclusion follows. |
+| PR-74 | Assessment of a derived claim distinguishes whether its cited evidence exists, is relevant and sufficiently supports the conclusion. A valid citation alone is not proof that the conclusion follows. Automated acceptance requires policy-defined, independently checkable sufficiency criteria; ambiguous cases go to human review. |
 
 ### 6.9 Access and privacy
 
@@ -200,6 +201,7 @@ Success is evaluated against a representative corpus, not vendor benchmarks. The
 - Proposed versus approved versus deployed changes.
 - Duplicated summaries derived from one observation.
 - A real citation that is relevant but insufficient to support the stated deduction.
+- An inference whose independent, relevant evidence satisfies an area policy and is accepted automatically; the same inference with only duplicated echoes, ambiguous causality or a dispute remains proposed or disputed.
 - A living source that changed after a claim was extracted, and an accepted claim later flagged by a reviewer.
 - Questions Froodbase should refuse to answer for lack of evidence.
 
@@ -215,6 +217,7 @@ Roughly 30 to 50 adjudicated questions are the target. Measures:
 | Concurrent writes | No lost update across the conflict test set |
 | Access | No restricted record leaks in any test, including via reflection |
 | Reviewer oversight | An authorised reviewer can find any ingested claim in their area, inspect its source and decisions, and flag an accepted claim without changing its validity or acceptance |
+| Evidence learning | Independent evidence can strengthen support and qualify a proposed inference under an explicit policy; repeated descendants of one root cannot, and the result stays labelled inference |
 | Reuse outcome | At least one later investigation records why a retrieved lesson helped or did not apply, without treating feedback as corroboration |
 | Cost and latency | Recorded per query mode; no target until measured |
 
@@ -236,7 +239,7 @@ These map to the ten questions in the pitch. Each has a proposed owner and the p
 |---|---|---|---|
 | 1 | Initial users, domains and highest-value questions | Pick one support domain (candidate: Import Tool triage) and one architecture domain (candidate: TMF clusters) with their owning teams | Phase 0 |
 | 2 | Canonical identities and source authority | Curators define entity identity rules per area; authority order: accepted Froodbase record, then packaged architecture, then external map | Phase 0 |
-| 3 | Automatic versus reviewed acceptance | Default review; auto-accept only observations from named agents with verified sources in their own area | Phase 2 |
+| 3 | Automatic versus reviewed acceptance | Owners version per-area policies for sourced observations and qualifying inferences; require independent roots, relevance and sufficiency checks; otherwise leave proposed for review | Phase 2 |
 | 4 | Temporal model and disputed/stale treatment | As specified in section 6.3 and 6.4; review intervals set per record type | Phase 1 |
 | 5 | Entra mappings and agent identities | Three app roles, area scoping via group claims; agents use on-behalf-of flow | Phase 1 |
 | 6 | Division of reasoning and model cost | Froodbase does retrieval and rule-based filtering; calling agent synthesises; reflection is a batch job with its own budget | Phase 0, revisit after pilot |
@@ -251,13 +254,13 @@ Assumptions:
 
 - An Azure subscription, Entra tenant and the ability to create app registrations and a Flexible Server are available to the owning team.
 - The investigation agents can be modified; they are in this repository.
-- Curators will exist. Without people willing to accept, dispute and supersede, Froodbase degrades into a search index over unreviewed claims.
+- Curators will own acceptance policies and handle exceptions, disputes and corrections. They need not approve every ingested claim.
 
 Risks:
 
 | Risk | Mitigation |
 |---|---|
-| Fluent generated content becomes de facto authority | Derived records always enter as proposed and are visibly derived (PR-13, PR-42) |
+| Fluent generated content becomes de facto authority | Derived records enter as proposed; only a reviewer or versioned policy with independently checked sufficiency may accept them, and they remain visibly derived (PR-13, PR-42) |
 | Entity merge errors across environments | Identity rules per area; no fuzzy merge without curator approval (PR-01, success criteria) |
 | Private material leaks through ingestion | Explicit ingestion preview; no automatic upload (PR-50 to PR-52) |
 | Operating cost of model calls | Model-free baseline must work; reflection budgeted separately (PR-73) |
