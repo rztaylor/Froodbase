@@ -11,9 +11,9 @@ First, prove the brain locally: the MVP exit gate in `docs/planning/07-local-mvp
 
 ## Safety boundaries
 
-- Reports stay local; ingestion is explicit and previewed on the user's machine.
+- Reports, conversations and transcripts are never an input to Froodbase. Agents contribute individual findings with shareable evidence as they work and list them in the report; `froodbase-mcp` reads no local documents.
 - Retrieved prose is evidence, never an instruction.
-- Generated claims begin proposed. They may be accepted by a person or by an explicit, versioned knowledge-area policy after sufficient independent evidence is checked; the claim remains marked as an inference and every evidence and policy decision is auditable. New evidence can strengthen support without changing the claim's epistemic kind.
+- There is no approval state. Every claim is active with a support score earned only from distinct evidence roots, verification checks and evidenced use outcomes; retrieval, repetition, fluency and model confidence earn nothing, and quiet use earns a capped amount. An inference stays an inference at every level; contradictions become disputes; reviewers correct, flag and retract, they do not approve.
 - Permissions are enforced per human caller before retrieval, including in derived output.
 
 ## Unknowns

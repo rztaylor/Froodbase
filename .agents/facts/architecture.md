@@ -22,13 +22,12 @@ Reference design: `docs/planning/03-architecture-design.md`. This file records w
 - `internal/authz`: the authorisation context (caller identity, acting agent, (area, role) grants) and the `Builder` interface from an authenticated `Principal`. Implementations: `authz/staticusers` (MVP, exists); Entra token claims and group mapping (cloud move). No credential type appears in the interface.
 - `internal/store`: PostgreSQL access (pgx, sqlc), goose migrations, RLS session variable, River job insertion.
 - `internal/retrieval`: candidate channels, permission and mode filters, fusion, explanation trace.
-- `internal/contribute`: evidence validation, entity resolution, conflict detection, acceptance policy, change-set writes.
-- `internal/ingest`: local report parsing and preview (used by `froodbase-mcp` only).
-- `internal/dreamer`: workers and schedules for indexing, reconsideration, sweeps, gap scans, consolidation, reflection, knowledge views. Exists with the heartbeat; job argument types live in `internal/store/jobs` so the API can enqueue them.
+- `internal/contribute`: evidence validation, entity resolution, conflict detection, support events and scoring against the area configuration, outcome recording, change-set writes.
+- `internal/dreamer`: workers and schedules for indexing, support recomputation, quiet-use credits, sweeps, gap scans, consolidation, reflection, knowledge views. Exists with the heartbeat; job argument types live in `internal/store/jobs` so the API can enqueue them.
 - `internal/mcpserver`: tool definitions on the MCP Go SDK with handlers supplied by the binary (API engines in `froodbase-api`, forwarding client in `froodbase-mcp`). Exists; grows a tool set per slice.
 - `internal/client`: the HTTPS client `froodbase-mcp` uses to call `froodbase-api`. Exists; gains Entra sign-in with the cloud move.
 
-Dependency direction: `cmd/*` -> `mcpserver`, `dreamer`, `client` -> `retrieval`, `contribute`, `ingest`, `authz` -> `store` (and `store/jobs`) -> `domain`. Nothing imports `cmd/*`.
+Dependency direction: `cmd/*` -> `mcpserver`, `dreamer`, `client` -> `retrieval`, `contribute`, `authz` -> `store` (and `store/jobs`) -> `domain`. Nothing imports `cmd/*`.
 
 ## Boundary documents
 
