@@ -10,7 +10,7 @@ Date: 13 October 2026. Revised 14 October 2026 for Go, the three binaries, Graph
 2. **Authorisation before everything.** Candidates are filtered by the caller's permissions before ranking, snippets, fusion or any model sees them.
 3. **Two clocks.** Every fact separates when it was true (validity time) from when we recorded it (transaction time). Neither is inferred from the other.
 4. **Evidence has roots.** Derivation links let the service count distinct evidence, not repeated restatements.
-5. **Generated text is a proposal.** Reflection and inference output can never become accepted knowledge without a reviewer.
+5. **Generated text starts as a proposal.** Evidence strengthens separately from epistemic kind. A versioned area policy may accept a derived claim when independently checkable sufficiency conditions pass; fluent text or repeated restatements never qualify on their own. Every step remains inspectable and correctable.
 6. **Small surface.** A finite MCP tool set, one database, one Go module. Anything larger must earn its place in the pilot.
 7. **One module, three binaries.** A local MCP binary on each computer, a remote API, and a background "dreamer" share the same Go packages for the domain rules, so there is one definition of validity, scope overlap and authorisation.
 8. **Adapt designs, not runtimes.** Graphiti and Hindsight contribute proven shapes (bitemporal edges, episodes as provenance, deterministic entity resolution, hybrid recall, citation-validated synthesis). Their write-path automation is deliberately not reproduced.
@@ -160,6 +160,7 @@ Component responsibilities:
 - **Review and lifecycle engine.** State transitions with role checks, base-revision checks and rationale capture.
 - **Report ingestion.** Two-step preview and commit (TR-62). Preview is pure: it computes the change set and returns it without writing.
 - **Contribution oversight.** Area-scoped queries join each contribution to its individual claims, revisions, source references, review flags and decisions, including accepted and historical records. A reviewer can flag one claim with a reason; its accepted state remains until a later authorised decision. Operational audit events retain who did what, while the contribution and revision records retain what knowledge was entered and how it was judged (TR-45, TR-75).
+- **Support assessment and policy engine.** Reassesses a claim when independent evidence arrives or support changes, keeping epistemic kind, support and lifecycle disposition distinct. A qualifying proposal may be accepted by the area's versioned policy, with the rule, input revisions and rationale appended to history. Ambiguous sufficiency, source drift and disputes go to reviewers rather than a universal approval queue (TR-29, TR-43, TR-44).
 
 ## 5. Data model
 
@@ -168,6 +169,7 @@ erDiagram
     KNOWLEDGE_AREA ||--o{ ENTITY : contains
     KNOWLEDGE_AREA ||--o{ ASSERTION : contains
     KNOWLEDGE_AREA ||--o{ LESSON : contains
+    KNOWLEDGE_AREA ||--o{ SUPPORT_ASSESSMENT : contains
     KNOWLEDGE_AREA ||--o{ ACCEPTANCE_POLICY : configures
     KNOWLEDGE_AREA ||--o{ GROUP_MAPPING : grants
 
@@ -194,6 +196,9 @@ erDiagram
     RELATIONSHIP ||--o{ SUPERSESSION : "replaced by"
     ASSERTION ||--o{ DISPUTE : "party to"
     RELATIONSHIP ||--o{ DISPUTE : "party to"
+    ASSERTION ||--o{ SUPPORT_ASSESSMENT : "assessed by"
+    RELATIONSHIP ||--o{ SUPPORT_ASSESSMENT : "assessed by"
+    LESSON ||--o{ SUPPORT_ASSESSMENT : "assessed by"
 
     REVISION ||--|| AUDIT_EVENT : "recorded as"
     REVISION ||--o{ RIVER_JOB : "schedules"
@@ -278,6 +283,16 @@ erDiagram
         timestamptz observed_at
         timestamptz recorded_at
     }
+    SUPPORT_ASSESSMENT {
+        uuid id PK
+        uuid record_id
+        uuid area_id FK
+        text support_state
+        jsonb evidence_root_ids
+        text policy_version
+        text rationale
+        timestamptz assessed_at
+    }
     REVISION {
         uuid record_id
         int revision
@@ -336,6 +351,7 @@ Notes on the model:
 
 - **Scope** is a JSONB object with fixed keys (`environment`, `region`, `version_min`, `version_max`, `cluster`, `tenant`). A missing key means unspecified. Overlap is computed by a SQL function so the conflict classifier and the mode filter use the same definition (TR-26).
 - **Evidence roots.** `root_evidence_id` points at the original observation when an evidence record is itself a restatement (for example a report excerpt quoting a telemetry query). Corroboration counts distinct roots (TR-25).
+- **Three independent axes.** Epistemic kind (`observation`, `decision`, `inference`) says what a statement is; support assessments say what independent, relevant evidence currently supports it; lifecycle says whether it is proposed, accepted, disputed and so on. The latest support assessment is a projection of append-only assessments with evidence roots, relevance/sufficiency findings, policy version and rationale. A policy-accepted inference stays an inference. Updating support never guesses a validity date or erases an earlier assessment (TR-29).
 - **Living-source extraction.** A repository commit and path, Confluence page ID and version, or equivalent stable source reference identifies the material examined. `source_locator` can name a line range or section; a short excerpt may preserve the basis for a historical claim when the live source changes. Importer and extractor identity/version and optional input digest belong to contribution or evidence provenance. A content fingerprint suggests duplicate claims but never merges independent evidence roots. Original-author attribution is separate from the authenticated contributor and may remain unknown (TR-24, TR-65). Original document bodies are absent unless source-copy retention was chosen under TR-28.
 - **Revisions** hold a full JSONB snapshot of the record at each change. This makes `get_history` and `get_as_of` by recording time trivial, and keeps the live tables narrow.
 - **Validity-time queries** use a GiST index on `tstzrange(valid_from, valid_to)` combined with lifecycle state (TR-34).
@@ -345,16 +361,16 @@ Notes on the model:
 - **Queryable knowledge history.** The contribution, claim and revision records remain available to authorised area reviewers independently of the 400-day operational audit-event retention. Filtered, paginated reads include proposed, accepted, disputed, rejected and superseded claims. Review flags and their reasons are appended to history and enter the due-for-review queue without altering the claim's validity or acceptance. Per-area authorisation applies before counts, joins and source excerpts (TR-45, TR-75).
 - **Entity aliases and reversible merges.** `entity_alias` holds every name an entity has carried and, after a merge, which entity id was folded into which with the curator's rationale. A merge never rewrites claims; it records an alias, so it can be undone. Neither Graphiti nor Hindsight can un-merge.
 - **Relationship types with cardinality.** `relationship_type` holds the allowed (source type, target type) pairs and whether the predicate is single-valued (one owner) or multi-valued (many dependencies). Cardinality is what lets the conflict classifier tell "replaced" from "added"; its absence is the root of Graphiti's mis-retirement issue.
-- **Causal links.** A `caused_by` link between assertions, proposed by a contributor and reviewed like any claim, supports lessons. It is the one Hindsight link type adopted; semantic links are a rebuildable projection and are deferred.
+- **Causal links.** A `caused_by` link between assertions is an inference, not a direct observation. It begins proposed, requires independently checkable causal support for policy acceptance or goes to a reviewer, and remains labelled inferred thereafter. It is the one Hindsight link type adopted; semantic links are a rebuildable projection and are deferred.
 
 ## 6. Temporal and lifecycle semantics
 
 ```mermaid
 stateDiagram-v2
     [*] --> proposed : propose_contribution / ingest_report / reflection
-    proposed --> accepted : reviewer accepts, or policy auto-accepts (observations only)
+    proposed --> accepted : reviewer or evidence-qualified area policy
     proposed --> rejected : reviewer rejects
-    accepted --> verified : verify_record with fresh evidence
+    accepted --> verified : fresh evidence checked by reviewer or area policy
     verified --> accepted : verified_at older than freshness policy (soft, computed)
     accepted --> disputed : conflicting record overlaps in scope and time
     verified --> disputed : conflicting record overlaps in scope and time
@@ -367,6 +383,8 @@ stateDiagram-v2
 ```
 
 Validity is orthogonal to lifecycle. A `verified` record whose `valid_to` has passed is correct history, not an error. The `current` mode therefore asks three questions of each record: is it accepted or verified, is it not superseded, and does its validity range include now (or is `valid_to` null). Records passing all three but with stale `verified_at` are returned with a `stale: true` flag rather than excluded (TR-31).
+
+Support is orthogonal too. New independent evidence can increase support for a proposed or accepted claim without relabelling an inference as an observation. Source drift or withdrawn support appends a weaker assessment and raises reconsideration; it does not silently revoke acceptance or infer that validity ended. A policy transition is a separate append-only decision naming the policy version, checked root evidence, input revisions and rationale. An unresolved contradiction creates a dispute and blocks automatic promotion or an unqualified current answer. The unmatched or unevaluable case stays proposed for human review (TR-29, TR-43, TR-44).
 
 Worked example from the pitch, as stored:
 
@@ -404,10 +422,10 @@ sequenceDiagram
     DB-->>API: candidates (already RLS-filtered)
     API->>API: application-level authorisation filter (defence in depth)
     API->>API: mode filter: accepted/verified, not superseded, validity includes now
-    API->>API: fuse and rank, compute corroboration from evidence roots
+    API->>API: fuse and rank, assess support from distinct evidence roots
     API->>API: record explanation trace
     API->>DB: audit restricted reads
-    API-->>Ag: results with state, scope, validity, citations, stale flags, insufficient_evidence flag
+    API-->>Ag: results with kind, state, support, scope, validity, citations, stale and insufficient_evidence flags
 ```
 
 ### 7.2 Contribution with conflict classification
@@ -428,15 +446,15 @@ sequenceDiagram
         API->>API: validate evidence URIs and access classes
         API->>DB: find overlapping accepted records (subject, type, scope, validity)
         API->>API: classify: time change / scope / correction / contradiction
-        API->>API: apply acceptance policy per record
+        API->>API: assess support from independent roots; apply versioned area policy per record
         API->>DB: begin transaction and check base revisions
         alt base revision stale
             API-->>Ag: conflict with current revision (no write)
         else ok
-            API->>DB: insert records, revisions, disputes, River jobs, audit, then commit
-            API-->>Ag: record ids, states, disputes raised
+            API->>DB: insert records, support assessments, policy decisions, revisions, disputes, River jobs, audit, then commit
+            API-->>Ag: record ids, states, support, policy receipt, disputes raised
             W->>DB: claim River jobs
-            W->>DB: update FTS, generate embeddings, mark derived records needs_reconsideration
+            W->>DB: update FTS, generate embeddings, reassess dependants and flag exceptions
         end
     end
 ```
@@ -522,8 +540,8 @@ Three rules keep reflection honest:
 
 - The synthesis prompt receives record identifiers and bodies; the output must cite identifiers it was given. The dreamer keeps the set of identifiers it showed the model and strips any citation outside that set, then discards an output left with no valid citations. This is Hindsight's `available_ids` and `drop_unseen_ids` discipline.
 - Corroboration shown to the model is computed from evidence roots, so three restatements of one observation are presented as one.
-- Output is a proposed lesson or inference with derivation links. It never updates or deletes an existing record. Hindsight's consolidation asks its model for creates, updates and deletes and applies them; Froodbase keeps the bookkeeping (`consolidated_at` watermark per source record, source identifiers on the proposal, history rows) and drops the mutation.
-- Review asks separately whether cited records exist, are relevant and sufficiently support the conclusion. Deterministic citation checks enforce structural validity; a model may help prioritise review but cannot establish sufficiency as a fact or accept its own output. Store the policy and prompt version, source revisions and rationale with model-assisted findings (TR-85).
+- Output begins as a proposed lesson or inference with derivation links. It never updates or deletes an existing record. Hindsight's consolidation asks its model for creates, updates and deletes and applies them; Froodbase keeps the bookkeeping (`consolidated_at` watermark per source record, source identifiers on the proposal, history rows) and drops the mutation.
+- Assessment asks separately whether cited records exist, are relevant and sufficiently support the conclusion. Deterministic citation checks enforce structural validity; model opinion alone cannot establish sufficiency or accept its own output. Versioned area policies may accept generated inferences only when their independently checkable evidence predicates pass; other cases go to review. Store the policy and prompt version, source revisions and rationale with the decision (TR-85).
 
 ### 9.1 Knowledge views
 
@@ -567,12 +585,12 @@ Agents never hold a standalone Contributor role; they act on behalf of a person 
 | D5 | River (Postgres-backed, transactional) for all async work | Service Bus or Storage queues; hand-rolled outbox table | One transaction commits record and job; no second infrastructure dependency; queue depth is a SQL query; periodic and unique jobs come for free. MPL-2.0 is file-level copyleft and acceptable as an unmodified dependency |
 | D6 | Finite MCP tool set, no query language | Exposed SQL or GraphQL | Assessment and safety rules: no arbitrary SQL from agents |
 | D7 | Authorisation in application plus RLS | RLS only; application only | RLS is bypassable by table owners; application-only is one bug from a leak |
-| D8 | Reflection as a budgeted batch job writing proposals | Synchronous reflection tool; auto-accepted summaries | Keeps model cost bounded and keeps generated text non-authoritative |
+| D8 | Reflection as a budgeted batch job writing proposals, followed by independent evidence and area-policy assessment | Synchronous reflection tool; ungoverned auto-accepted summaries | Keeps model cost bounded; generated prose alone never confers authority |
 | D9 | Report ingestion as preview then commit | Single-step ingestion; automatic ingestion on report generation | Reports remain local until explicit sharing; the user sees extracted records and separately approves any original copy that crosses the boundary |
 | D10 | Adapt designs from Graphiti and Hindsight; adopt neither runtime nor service | Adopt Hindsight as a service; adopt Graphiti; build with no reference | Research on 14 Oct 2026 (section 15): Graphiti has no PostgreSQL backend and its maintainers closed the request; Hindsight's open-source auth is one shared key per schema with no per-caller permission; both apply model decisions to the write path in ways Froodbase forbids. Both are Python, so no code reuse into Go in any case |
 | D12 | Go, one module, three binaries (`froodbase-mcp`, `froodbase-api`, `froodbase-dreamer`) | Single service with remote MCP only; separate repositories per binary | Team language. Shared packages give one implementation of validity, scope and authorisation rules. The local binary keeps reports local during preview and simplifies client sign-in |
 | D13 | Entity merges are recorded as aliases and are reversible; the model tier of entity resolution only proposes | Graphiti-style uuid rewrite; Hindsight-style irreversible merge | Both reference projects document false-merge risk and neither can undo one |
-| D14 | Contradiction detection produces dispute records; nothing automatic sets `valid_to` or lifecycle state on an existing record | Graphiti-style auto-invalidation; Hindsight-style consolidation rewrite | Pitch requirement; Graphiti's open issues show the cost of the alternative |
+| D14 | Contradiction detection produces dispute records; it never infers `valid_to` or retires an existing claim | Graphiti-style auto-invalidation; Hindsight-style consolidation rewrite | Pitch requirement; Graphiti's open issues show the cost of the alternative. This does not prevent separate evidence-qualified policy acceptance of a proposal |
 | D11 | Streamable HTTP MCP with Entra as authorisation server | Custom API key auth | Matches MCP authorisation spec and reuses existing identities |
 
 ## 12. Deployment topology
@@ -618,6 +636,7 @@ Private networking between Container Apps and Flexible Server; no public databas
 - Exact Entra claim layout for area scoping (group IDs in token versus directory lookup) depends on tenant group count; decide in phase 1.
 - Whether lesson sections need their own embeddings or one per lesson; decide from the evaluation corpus.
 - Freshness policy defaults per record type (how old `verified_at` may be before `stale`) are curator settings; propose 90 days for observations, none for decisions.
+- The pilot areas must specify which inference classes, if any, have independently checkable sufficiency predicates for automatic acceptance; unevaluable causal claims remain proposed for review.
 - Redaction interaction with revision snapshots: snapshots containing a redacted excerpt must also be scrubbed; design the scrub job in phase 2.
 
 ## 15. What was adapted from Graphiti and Hindsight

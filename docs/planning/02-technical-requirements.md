@@ -22,7 +22,7 @@ Date: 13 October 2026. Revised 16 October 2026 for source extraction, continuous
 | TR-11 | MCP authorisation follows the MCP authorisation specification with Entra ID as the OAuth 2.1 authorisation server. Access tokens carry the caller's object ID, group or role claims and, for agents, the acting-for identity via the on-behalf-of flow. | PR-80, PR-82 |
 | TR-12 | The MCP tool surface is explicit and finite. No tool accepts arbitrary SQL, arbitrary filters compiled to SQL, or raw table access. | assessment |
 | TR-13 | Minimum tool set for the pilot: `search`, `get_record`, `get_history`, `get_as_of`, `list_relationships`, `propose_contribution`, `review_contribution` (accept, dispute, reject, supersede), `verify_record`, `ingest_report`, `list_due_for_review`, `explain_answer`. | PR-60 to PR-64, PR-40, PR-51, PR-71, PR-100 |
-| TR-14 | Every tool response includes the lifecycle state, epistemic kind, scope, validity, verification date and citations for each record returned. A response never returns bare text without these fields. | PR-61 |
+| TR-14 | Every tool response includes lifecycle state, epistemic kind, current support assessment, scope, validity, verification date and citations for each record returned. An accepted inference is still labelled inference. A response never returns bare text without these fields. | PR-15, PR-61 |
 | TR-15 | Tools are idempotent where a retry is possible: contributions and ingestions carry a client-supplied idempotency key held for at least 24 hours. | PR-45 |
 | TR-16 | Writes require the base revision of any record they modify. A mismatch returns a conflict with the current revision; the server never merges silently. | PR-44 |
 | TR-17 | Results are paginated and each page carries a stable cursor; the maximum page size is enforced server-side. | operability |
@@ -42,6 +42,7 @@ Full schema design is in the architecture document. These are the invariants the
 | TR-26 | Scope is a structured value (environment, region, version range, cluster, tenant) with explicit "unspecified" for each dimension. Two scopes are comparable for overlap. | PR-20, PR-30 |
 | TR-27 | Knowledge areas partition records for authorisation. Every record belongs to exactly one area. Cross-area relationships are allowed and are visible only to callers who can read both ends. | PR-62, PR-80 |
 | TR-28 | The normal ingestion result is extracted records with source references, not a copy of the original report or document. If the contributor explicitly elects to retain a source copy for a stated benefit, it is stored as an immutable revision with its own access classification and kept separate from extracted claims. | PR-51 to PR-54 |
+| TR-29 | Each claim has a separately inspectable, area-scoped support assessment derived from linked evidence: root identity, source authority, relevance, scope and time fit, sufficiency and challenges. Adding independent support or losing checkable support appends an assessment event without changing epistemic kind or inferring a validity date. Repeated descendants of one root cannot raise corroboration. | PR-12, PR-14, PR-15, PR-74 |
 
 ## 4. Temporal model
 
@@ -58,11 +59,11 @@ Full schema design is in the architecture document. These are the invariants the
 
 | ID | Requirement | Traces to |
 |---|---|---|
-| TR-40 | Lifecycle states: `proposed`, `accepted`, `verified`, `disputed`, `superseded`, `rejected`. Transitions are restricted by role and recorded with actor, time, base revision and rationale. | PR-40, PR-34 |
+| TR-40 | Lifecycle states: `proposed`, `accepted`, `verified`, `disputed`, `superseded`, `rejected`. Transitions are restricted to authorised people or versioned knowledge-area policies and recorded with human actor or policy identifier, time, base revision, evidence set and rationale. `verified` records a fresh check; it does not turn an inference into an observation. | PR-40, PR-34 |
 | TR-41 | On write, the service detects existing accepted or verified records with the same subject, type and overlapping scope and validity. It then classifies: non-overlapping time (change over time), non-overlapping scope (different scope), contributor-declared correction (supersession), or otherwise (contradiction). | PR-30 |
 | TR-42 | A contradiction creates a dispute record linking both sides. Both remain retrievable and are labelled disputed until a reviewer resolves the dispute. | PR-31 |
-| TR-43 | Acceptance policy is a per-area configuration table: (contributor class, record kind, source kind) to (auto-accept, review). The default row is review. Inference and reflection output can never be auto-accepted. | PR-41, PR-42 |
-| TR-44 | When any record changes state, every record that derives from it is marked `needs_reconsideration` and surfaces in `list_due_for_review`. | PR-13, PR-101 |
+| TR-43 | Acceptance policy is versioned per knowledge area and claim class. It identifies allowed contributor and source classes, minimum independent evidence roots, required source authority, relevance, scope/time and sufficiency predicates, conflict exclusions, and whether qualifying claims are auto-accepted, verified or queued for review. The unmatched fallback is proposed. Inferences and reflection output may auto-accept only when the policy's independently checkable sufficiency predicates pass; model confidence, prose fluency, valid citations and repeated descendants of one root cannot satisfy them alone. Every evaluation records the policy version, input revisions, result and rationale. | PR-41, PR-42, PR-74 |
+| TR-44 | When a supporting source or record changes, the service recomputes affected support assessments and policy eligibility, appends the result and marks derived records `needs_reconsideration` where support is lost or ambiguous. It does not silently change historical validity or resolve a dispute. Eligible proposed claims can gain support or be accepted through TR-43 without a human action. | PR-13, PR-15, PR-101 |
 | TR-45 | An authorised reviewer can flag any claim, including one already accepted, for reconsideration with a reason. The flag is recorded in its history and appears in the review queue; its lifecycle state and validity do not change until an authorised review action. Review decisions address individual claims within a contribution. | PR-32, PR-46 |
 
 ## 6. Retrieval
@@ -75,7 +76,7 @@ Full schema design is in the architecture document. These are the invariants the
 | TR-53 | Mode filtering is applied after authorisation: `current` excludes superseded and rejected records and validity-expired records; `as_of` applies TR-34; `historical` includes everything but labels each record's status relative to now. | PR-23 to PR-25 |
 | TR-54 | Ranking fuses channels (reciprocal rank fusion or equivalent). Recency of `recorded_at` is not a ranking signal in `current` mode; verification state and evidence corroboration are. | PR-23 |
 | TR-55 | `explain_answer` returns, for a prior search, every authorised candidate that was considered and the rule that included or excluded it after authorisation. It does not reveal inaccessible candidate identities, contents or counts. | PR-100 |
-| TR-56 | A search whose top candidates are all `proposed`, `disputed` or below a corroboration threshold returns an explicit `insufficient_evidence` flag alongside the results. | PR-63 |
+| TR-56 | A search whose top candidates are all `proposed`, `disputed` or below the area's support threshold returns an explicit `insufficient_evidence` flag alongside the results. The threshold uses distinct roots and sufficiency, not mention counts or model confidence. | PR-15, PR-63 |
 | TR-57 | Full-text and vector indexes are projections rebuildable from canonical tables by a documented job. Index staleness is observable per record. | assessment |
 | TR-58 | Embedding generation, when enabled, runs asynchronously from a durable job queue in the same database (outbox pattern). A failed embedding leaves the record committed and searchable by full text. | assessment |
 | TR-59 | Retrieval feedback links a request and returned record revision to the human caller, acting agent if any, and a used, ignored or inapplicable outcome with a reason. It is append-only and may inform evaluation or review selection, but cannot itself increase corroboration or change a claim's lifecycle state. | PR-65 |
@@ -84,10 +85,10 @@ Full schema design is in the architecture document. These are the invariants the
 
 | ID | Requirement | Traces to |
 |---|---|---|
-| TR-60 | `propose_contribution` accepts a batch of records (entities, relationships, assertions, lessons, evidence) as one atomic change set with a single idempotency key and a target knowledge area. Its result identifies each submitted claim, source reference and review state so the contributor can inspect or correct it. | PR-40, PR-45, PR-46 |
+| TR-60 | `propose_contribution` accepts a batch of records (entities, relationships, assertions, lessons, evidence) as one atomic change set with a single idempotency key and a target knowledge area. Its result identifies each submitted claim, source reference, support and lifecycle state, and any area-policy decision so the contributor can inspect or correct it. | PR-40, PR-45, PR-46 |
 | TR-61 | The service validates every evidence reference: the source kind is known, the URI matches an allowed pattern for shared sources, and the access classification is not more permissive than the source's. Local file paths are rejected. | PR-11, PR-43 |
 | TR-62 | `ingest_report` is a two-step tool: `preview` runs inside `froodbase-mcp` on the user's machine and returns the destination area, the records that would be created and their classification (evidence, hypothesis, proposed conclusion), and whether a source copy is offered for retention. It sends only entity names and the area to `froodbase-api`; `commit` sends the approved change set and any separately approved source copy. The investigation workflow never calls `commit` without the user having seen the preview. | PR-50 to PR-54 |
-| TR-63 | Ingested hypotheses and rejected explanations are stored as `inference` assertions in `proposed` state linked to the contribution and its shareable evidence; they are never auto-accepted. They also link to a report revision if one was explicitly retained. | PR-43, PR-52, PR-54 |
+| TR-63 | Ingested hypotheses and explanations are stored as `inference` assertions in `proposed` state linked to the contribution and its shareable evidence. Extraction alone cannot accept them; later independent evidence may strengthen or permit policy-governed acceptance under TR-43. A rejected explanation remains visibly rejected or challenged. These records link to a report revision if one was explicitly retained. | PR-42, PR-43, PR-52, PR-54 |
 | TR-64 | Contribution records the human caller, the agent identity if any, the client application and the originating investigation identifier. | PR-82 |
 | TR-65 | Importers record the upstream source identity and revision, precise locator, importer and extraction versions, and a fingerprint of extracted content. A digest of the input may be computed without retaining it. Where source material names an original speaker or author, record that attribution and its uncertainty separately from the authenticated contributor. Fingerprints identify reconciliation candidates, not independent evidence roots. | PR-10 to PR-12, PR-14 |
 | TR-66 | When a later import or source check detects that a cited living source changed, disappeared or became inaccessible, record the observation and flag affected claims for review. Do not infer `valid_to`, verification or a new lifecycle state from source change alone. | PR-14, PR-21, PR-33 |
@@ -113,7 +114,7 @@ Full schema design is in the architecture document. These are the invariants the
 | TR-82 | Gap analysis (TR-13 `list_due_for_review`) is rule-based and needs no model: unowned entities, evidence-free relationships, lessons unverified in a requested scope, records past `review_due_at`, records marked `needs_reconsideration`, and claims explicitly flagged by a reviewer. | PR-46, PR-71, PR-73 |
 | TR-83 | All model calls go through one adapter with a per-job token budget, a configured model identifier and full request logging (prompt hash, record identifiers, cost). The service must pass all pilot acceptance tests with model calls disabled, except the tests specific to semantic search and reflection synthesis. | PR-73 |
 | TR-84 | Model hosting uses the organisation's approved provider. Prompts include only records the job's authorisation context can read. | PR-72 |
-| TR-85 | Evaluation and review of generated claims separately check citation existence, topical relevance and evidential sufficiency. Structural checks are deterministic; model assessments, when used, carry a stable policy-rule identifier, policy/prompt version, source revisions and rationale and only prioritise human review. They never accept a generated claim or resolve a dispute. | PR-42, PR-74 |
+| TR-85 | Assessment of generated claims separately checks citation existence, topical relevance and evidential sufficiency. Structural checks are deterministic. Model assessments carry policy/prompt versions, source revisions and rationale but cannot alone satisfy an auto-acceptance predicate or resolve a dispute; only independently checkable TR-43 criteria can authorise an automatic transition. Ambiguous sufficiency is queued for human review. | PR-42, PR-74 |
 
 ## 10. Concurrency, durability and operations
 
@@ -156,7 +157,7 @@ Full schema design is in the architecture document. These are the invariants the
 | Product requirement group | Technical requirements |
 |---|---|
 | Knowledge model (PR-01 to PR-07) | TR-20 to TR-23, TR-27 |
-| Provenance (PR-10 to PR-14) | TR-24, TR-25, TR-44, TR-61, TR-65, TR-66 |
+| Provenance (PR-10 to PR-15) | TR-24, TR-25, TR-29, TR-44, TR-61, TR-65, TR-66 |
 | Temporal (PR-20 to PR-27) | TR-30 to TR-35, TR-53 |
 | Conflict and history (PR-30 to PR-34) | TR-40 to TR-42, TR-35 |
 | Contribution (PR-40 to PR-46) | TR-15, TR-16, TR-43, TR-45, TR-60, TR-64, TR-75, TR-90 |

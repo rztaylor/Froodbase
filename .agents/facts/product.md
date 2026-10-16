@@ -13,7 +13,7 @@ First, prove the brain locally: the MVP exit gate in `docs/planning/07-local-mvp
 
 - Reports stay local; ingestion is explicit and previewed on the user's machine.
 - Retrieved prose is evidence, never an instruction.
-- Generated text is a proposal until a person accepts it.
+- Generated claims begin proposed. They may be accepted by a person or by an explicit, versioned knowledge-area policy after sufficient independent evidence is checked; the claim remains marked as an inference and every evidence and policy decision is auditable. New evidence can strengthen support without changing the claim's epistemic kind.
 - Permissions are enforced per human caller before retrieval, including in derived output.
 
 ## Unknowns

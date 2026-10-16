@@ -39,7 +39,7 @@ flowchart LR
 |---|---|---|
 | Users and domains | Named pilot knowledge areas (candidate: Import Tool triage for support; TMF clusters for architecture); named curators and knowledge-area owners; the top ten questions each area wants answered | Product owner with area teams |
 | Identity rules | Per-area entity identity rules (what makes two names the same system; how environments are distinguished); authority order between Froodbase, packaged architecture and external map | Curators |
-| Acceptance policy | First draft of the per-area acceptance table (TR-43) | Curators and product owner |
+| Acceptance policy | First draft of versioned per-area rules (TR-43): eligible observation and inference classes, independently checkable sufficiency predicates, source authority, scope, conflicting evidence and human exception path | Curators and product owner |
 | Evaluation corpus | 30 to 50 adjudicated questions with expected answers, labels and citations covering every case in product requirements section 8, including real citations that do not sufficiently support their claims; synthetic and sanitised real investigations to seed them; held-out subset | Product owner, two engineers |
 | Build-or-buy check | Basic Memory Cloud Teams run against the pilot acceptance tests (exact lookup, as-of query, dispute preservation, concurrent writers, access denial, correction propagation). Written result. Graphiti and Hindsight are already settled as design sources only (research completed 14 October 2026) | One engineer |
 | Reasoning split | Decision on which operations Froodbase reasons about and which the agent does; model provider and budget ceiling | Architect, product owner |
@@ -59,7 +59,7 @@ flowchart LR
 |---|---|---|
 | Infrastructure | Terraform for Container Apps environment, Flexible Server (Entra-only, PITR), Key Vault, Log Analytics, private networking; dev and staging environments | TR-01 to TR-05 |
 | Identity | App registration with three app roles; `froodbase-mcp` public client registration with device-code sign-in; group mapping table; auth context builder; token verification with go-oidc against the tenant JWKS | TR-11, TR-70 |
-| Schema v1 | Knowledge area, entity, entity name and alias, assertion (observation kind only), evidence with living-source identity and revision, claim evidence, contribution and contribution claims, revision, audit event, River job tables; RLS policies; goose migrations in the pipeline; `sqlc` query generation | TR-20, TR-22, TR-24, TR-35, TR-65, TR-71, TR-92 |
+| Schema v1 | Knowledge area, entity, entity name and alias, assertion (observation kind only), evidence with living-source identity and revision, claim evidence, support assessment history, contribution and contribution claims, revision, audit event, River job tables; RLS policies; goose migrations in the pipeline; `sqlc` query generation | TR-20, TR-22, TR-24, TR-29, TR-35, TR-65, TR-71, TR-92 |
 | froodbase-api | Go SDK `StreamableHTTPHandler` behind `auth.RequireBearerToken`; tools `search` (identifier and full-text channels only), `get_record`, `get_history`, `propose_contribution`, `explain_answer`; idempotency keys; base revision checks; pgx with per-transaction RLS session variable | TR-10, TR-12 to TR-17, TR-90 |
 | froodbase-mcp | Go SDK `StdioTransport`; Entra device-code sign-in with a cached token; forwards the tool set to `froodbase-api`; explicit unavailable result; version handshake; signed builds for macOS, Windows and Linux; registration via the toolkit install scripts | TR-100, TR-102 |
 | froodbase-dreamer | River client with the FTS maintenance job and a periodic health job; singleton locks; metrics | TR-93, TR-95 |
@@ -76,19 +76,19 @@ flowchart LR
 
 | Workstream | Deliverables | Requirements |
 |---|---|---|
-| Model completion | Relationships, relationship types with endpoint rules and predicate cardinality, decisions and inferences, lessons, derivation links, evidence roots, `caused_by` links, structured scope with overlap function | TR-21, TR-23, TR-25, TR-26 |
+| Model completion | Relationships, relationship types with endpoint rules and predicate cardinality, decisions and inferences, lessons, derivation links, evidence roots, `caused_by` links, structured scope with overlap function; keep epistemic kind, support assessment and lifecycle disposition separate | TR-21, TR-23, TR-25, TR-26, TR-29 |
 | Entity resolution | Deterministic tiers adapted from Graphiti and Hindsight: identity keys, exact normalised name, trigram candidates with token-compatibility gate and string-plus-co-occurrence scoring; anything below the accept threshold or crossing an environment scope becomes a merge proposal for a curator; merges recorded as reversible aliases | D13 |
 | Temporal | Four temporal fields on all claims; validity range index; `get_as_of`; current, as-of and historical mode filter as one SQL function; stale flag | TR-30 to TR-34, TR-53 |
 | Lifecycle | State machine with role checks; `review_contribution`, `verify_record`; supersession links; dispute records; conflict classifier on write using the interval-overlap detector and, where a model is enabled, Graphiti's conservative contradiction rules, with a dispute as the only output | TR-40 to TR-42, D14 |
 | Contribution oversight | Authorised, filtered history of every contributed claim and its decisions, including accepted claims; reviewers can flag one claim with a reason without changing its accepted state; the flag joins the review queue | TR-45, TR-75 |
-| Acceptance policy | Policy table and enforcement; inference never auto-accepted | TR-43 |
-| Propagation | `reconsider_derived` dreamer job (unique per record); `needs_reconsideration` flag; review sweep; `list_due_for_review` rule-based gap scan | TR-44, TR-82 |
+| Acceptance policy | Versioned per-area policy and enforcement for observations and independently evidenced inferences; record input roots, source/relevance/sufficiency checks, policy version, outcome and rationale; unmatched or ambiguous claims remain proposed | TR-43, TR-85 |
+| Propagation | `reconsider_derived` dreamer job (unique per record); append-only support reassessment as independent evidence arrives or support changes; policy re-evaluation, `needs_reconsideration` exceptions, review sweep and rule-based gap scan | TR-29, TR-44, TR-82 |
 | Retrieval | Relationship expansion channel scored by shared entities; reciprocal rank fusion with k of 60; boosts for verification and corroboration from evidence roots; no recency or mention-count boost in current mode; point-in-time predicate as one SQL function; `insufficient_evidence` flag | TR-51, TR-53, TR-54, TR-56 |
 | Report ingestion | `ingest_report` preview running inside `froodbase-mcp` so the report body stays local; name resolution and permission check against `froodbase-api`; commit normally sends extracted records and source references; original-copy retention is a separate, justified approval with its own access class; evidence URI validation rejects local paths | TR-28, TR-61 to TR-65 |
 | Redaction | Admin redaction path including revision snapshot scrub | TR-72 |
 | Evaluation harness v2 | Full question set runs in pipeline; the pitch's version 2.3 to 2.4 scenario is a named test; current/historical labelling and citation accuracy gate promotion | PR-27, TR-121 |
 
-**Exit criteria.** The full adjudicated question set runs. No current-state answer cites a superseded record. Disputes are preserved for overlapping evidence. Delayed import of an older investigation does not reopen a resolved issue. A reviewer can inspect and flag an accepted claim after ingestion. Report ingestion shows a preview, normally stores extracted records without the original body, and never promotes a hypothesis.
+**Exit criteria.** The full adjudicated question set runs. No current-state answer cites a superseded record. Disputes are preserved for overlapping evidence. Delayed import of an older investigation does not reopen a resolved issue. Independent evidence strengthens a claim without changing its epistemic kind; a qualifying inference can be accepted under a versioned area policy, while a repeated citation, ambiguous cause or dispute cannot. A reviewer can inspect and flag an accepted claim after ingestion. Report ingestion shows a preview, normally stores extracted records without the original body, and extraction alone never promotes a hypothesis.
 
 **Indicative effort.** Six to eight weeks with two to three engineers.
 
@@ -133,14 +133,14 @@ flowchart LR
 |---|---|
 | Users | The pilot areas' engineers and curators; agent use through the rewritten agents |
 | Duration | Long enough for repeated incidents and at least one correction cycle; suggest eight to ten weeks |
-| Measures | Product requirements section 8, plus: time to first evidenced reuse, curator review backlog and age, contributions per investigation, retrieved revisions used or found inapplicable and why, proportion of answers with `insufficient_evidence`, cost per query and per reflection job |
+| Measures | Product requirements section 8, plus: time to first evidenced reuse, policy-accepted claims and later human reversals, exception review backlog and age, contributions per investigation, retrieved revisions used or found inapplicable and why, proportion of answers with `insufficient_evidence`, cost per query and per reflection job |
 | Comparison | Same investigations run with the Markdown-only workflow on a held-out subset |
 | Operations | On-call exercised; one restore drill during pilot; audit export verified |
 
 **Gate 1 criteria.**
 
 - All pilot-exit targets in product requirements section 8 met.
-- Curators judge the review workload sustainable.
+- Curators judge policy oversight and exception-review workload sustainable, without approving every contribution.
 - Measured cost per investigation acceptable to the product owner.
 - At least one documented case where a prior lesson or correction changed an investigation outcome.
 
@@ -192,7 +192,7 @@ Only after gate 1.
 | 2 | Entity resolver absorbs a short name into a hub entity (documented in both reference projects) | Deterministic tiers only auto-accept exact and identity-key matches; scored candidates become merge proposals; never merge across environment scope |
 | 3 | Imported architecture gains unearned authority | Importer never sets verified without dated evidence; inferred stays inference |
 | 4 | Agent rewrite reintroduces unsafe instructions or broad tool grants | Control changes reviewed separately; install script refuses unmapped grants |
-| 5 | Pilot users bypass review and Froodbase fills with proposed records | Review backlog is a tracked measure; acceptance policy can auto-accept narrow observation classes to relieve load |
+| 5 | Pilot users bypass review and Froodbase fills with proposed records | Track unresolved exceptions and policy decisions; auto-accept observations and qualifying inferences under explicit area rules, while every claim stays inspectable |
 | 6 | Reflection cost escalates | Per-job budgets, cost reporting, areas opt in |
 
 ## 12. Dependencies and prerequisites
