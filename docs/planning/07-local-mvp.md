@@ -2,7 +2,7 @@
 
 Status: approved scope (board decision, 14 October 2026). Narrows the [implementation plan](04-implementation-plan.md) to what is built first and where it runs. The [product requirements](01-product-requirements.md), [technical requirements](02-technical-requirements.md) and [architecture design](03-architecture-design.md) remain the reference; this document records what the MVP takes from them, what it replaces for local running, and what it defers.
 
-Date: 14 October 2026. Revised 16 October 2026 to clarify source provenance and reviewer inspection.
+Date: 14 October 2026. Revised 16 October 2026 to clarify source provenance and reviewer inspection, and again the same day for earned support, the smaller lifecycle and no report ingestion.
 
 ## 1. Purpose
 
@@ -49,7 +49,6 @@ The three-binary split is kept exactly. `froodbase-mcp` never talks to PostgreSQ
 | Migrations (TR-92) | Pipeline only | Developer runs `make migrate` locally | The cloud rule stands; the local target is the pipeline's stand-in |
 | Vector channel (TR-51, TR-58) | Optional per area | Off; no model endpoint | The identifier, full-text and relationship channels do not need a model; the fusion code accepts a fourth channel when it arrives |
 | Reflection (TR-80 to TR-84) | Budgeted dreamer job | Not built | Rule-based gap scan and reconsideration are built; they do not need a model |
-| Report ingestion (TR-62, TR-63) | Preview in `froodbase-mcp`, commit through the API | Not built | A client feature; `propose_contribution` is the path it commits through and is built |
 | Redaction (TR-72) | Admin path with snapshot scrub | Not built | Operational; nothing in the MVP produces restricted excerpts that cannot be deleted by resetting the volume |
 | Distribution | Signed binaries, install scripts, version handshake with update message | `make build`; the version handshake is built, the update message is a log line | The handshake is cheap and proves the contract |
 
@@ -64,7 +63,8 @@ The MVP is judged on these, not on feature count. From `docs/planning/01-product
 - Concurrent writers are rejected on a stale base revision; retries with the same idempotency key do not duplicate (PR-44, PR-45).
 - Permissions are enforced per human caller before retrieval, in the application and in row-level security (PR-62, TR-52, TR-71).
 - Corroboration counts distinct evidence roots (PR-12, TR-25).
-- Evidence support, epistemic kind and lifecycle state remain separate; a qualifying inference can be accepted under an explicit area policy without becoming an observation (PR-15, PR-42, TR-29, TR-43).
+- Support, epistemic kind and lifecycle state remain separate. Support is earned from distinct roots, verifications and evidenced outcomes, never from retrieval, repetition or model confidence; there is no proposed or accepted state and an inference stays an inference (PR-15, PR-40, PR-42, TR-29, TR-43).
+- Reports, conversations and transcripts are never an input; `froodbase-mcp` reads no local documents (PR-50, TR-62).
 - Every result carries lifecycle state, epistemic kind, support, scope, validity, verification date and citations (TR-14).
 
 ## 5. Slices
@@ -95,11 +95,11 @@ Exit: `make up` starts the stack from a clean checkout; Claude calls `whoami` th
 
 | Binary | Delivers |
 |---|---|
-| `froodbase-api` | Schema for knowledge areas, entities, entity names, observation assertions, evidence with roots and versioned references to living sources, claim evidence, support assessment history, contributions and contribution claims, revisions, audit events; row-level security on the caller's areas; `propose_contribution` for entities, observations and evidence (proposed state, idempotency key); `get_record`; `get_history`; `search` with the identifier and full-text channels |
+| `froodbase-api` | Schema for knowledge areas, entities, entity names, observation assertions, evidence with roots and versioned references to living sources, claim evidence, support event history, contributions and contribution claims, revisions, audit events; row-level security on the caller's areas; `contribute` for entities, observations and evidence (active, one `root_added` per distinct root, idempotency key); `get_record`; `get_history`; `search` with the identifier and full-text channels |
 | `froodbase-mcp` | The same tools |
 | `froodbase-dreamer` | Full-text and trigram index maintenance job enqueued in the write transaction (the outbox pattern, D5) |
 
-Exit: from Claude, propose an entity with an observation and shareable evidence, search for it by name and by a word in its body, read its history; a user without the area sees nothing and an audit event records the denied read; the index job runs within seconds of the write.
+Exit: from Claude, contribute an entity with an observation and shareable evidence, search for it by name and by a word in its body, read its history; a user without the area sees nothing and an audit event records the denied read; the index job runs within seconds of the write.
 
 ### Slice 2: two clocks
 
@@ -115,7 +115,7 @@ Exit: the pitch's worked example (failure on 2.3, fix merged, 2.4 deployed and v
 
 | Binary | Delivers |
 |---|---|
-| `froodbase-api` | Relationship types with endpoint rules and cardinality; relationships; lessons with their five sections; `list_relationships`; the relationship expansion channel; reciprocal rank fusion with k of 60 and the verification and corroboration boosts, no recency boost |
+| `froodbase-api` | Relationship types with endpoint rules and cardinality; relationships; lessons with their five sections; `list_relationships`; the relationship expansion channel; reciprocal rank fusion with k of 60 and the support and verification boosts, no recency boost |
 | `froodbase-mcp` | The same tools |
 | `froodbase-dreamer` | Rule-based gap scan (unowned entities, evidence-free relationships, lessons unverified in scope) feeding `list_due_for_review` |
 
@@ -125,11 +125,11 @@ Exit: "what depends on X" is answered from relationships without text matching; 
 
 | Binary | Delivers |
 |---|---|
-| `froodbase-api` | Lifecycle state machine with role and area-policy checks; `review_contribution` (accept, reject, dispute, supersede); `verify_record`; an area-scoped way for reviewers to inspect every contribution and individual claim, including accepted ones, and flag a claim for reconsideration; conflict classifier on write producing change-over-time, scope, correction or dispute outcomes; versioned acceptance policy for observations and independently evidenced inferences with proposed fallback; append-only support reassessment; base-revision conflicts; derivation links; `explain_answer`; the `insufficient_evidence` flag; pagination with cursors |
+| `froodbase-api` | Lifecycle state machine (active, disputed, superseded, retracted) with role checks; `review_claim` (dispute, resolve, supersede, retract, verify, flag); `report_outcome`; an area-scoped way for reviewers to inspect every contribution and individual claim in any state; conflict classifier on write producing change-over-time, scope, correction or dispute outcomes; support events and score projection under a versioned area configuration with per-kind thresholds; base-revision conflicts; derivation links; `explain_answer`; the `insufficient_evidence` flag; pagination with cursors |
 | `froodbase-mcp` | The same tools |
-| `froodbase-dreamer` | Reconsideration job walking derivation links, reassessing support and policy eligibility, and flagging ambiguous or weakened claims `needs_reconsideration` |
+| `froodbase-dreamer` | Reconsideration job walking derivation links, recomputing dependants' support and flagging those below threshold `needs_reconsideration`; quiet-use credits in the review sweep |
 
-Exit: two concurrent writers on one record, the second is rejected with the current revision; overlapping incompatible observations produce a dispute and both stay retrievable; a supersession removes the old record from current search immediately and triggers support reassessment of its derived inference; independent evidence can strengthen and policy-accept an inference while a duplicate echo cannot; a reviewer can inspect and flag an accepted claim without silently changing its state; `explain_answer` lists every candidate and the rule that kept or dropped it.
+Exit: two concurrent writers on one record, the second is rejected with the current revision; overlapping incompatible observations produce a dispute and both stay retrievable; a supersession removes the old record from current search immediately and lowers the support of its derived inference; an independent root and an evidenced successful outcome carry an inference across its threshold while a duplicate echo and a retrieval change nothing; a failed outcome lowers it; a reviewer can inspect and flag any claim without changing its state; `explain_answer` lists every candidate and the rule that kept or dropped it.
 
 ### Slice 5: evaluation corpus
 
@@ -157,4 +157,4 @@ Passing the gate reopens the implementation plan at phase 1 for the cloud move, 
 
 ## 8. Out of scope for the MVP
 
-Deferred work is tracked as low-priority backlog tickets on the board, not here. In summary: Entra sign-in and Streamable HTTP OAuth, Terraform and Container Apps, the vector channel and embeddings, reflection and consolidation, knowledge views, report ingestion, redaction, signed binaries and install scripts, and the importer for the shipped architecture references.
+Deferred work is tracked as low-priority backlog tickets on the board, not here. In summary: Entra sign-in and Streamable HTTP OAuth, Terraform and Container Apps, the vector channel and embeddings, reflection and consolidation, knowledge views, redaction, signed binaries and install scripts, and the importer for the shipped architecture references.

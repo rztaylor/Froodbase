@@ -2,7 +2,7 @@
 
 Status: draft for architecture review. Satisfies the [technical requirements](02-technical-requirements.md) (`TR-nn`). Decisions are recorded in section 11 so they can be challenged individually. Section 15 records what was adapted from Graphiti and Hindsight, with the detail in the [reuse research](06-reuse-research-graphiti-hindsight.md). The incremental OpenBrain assessment is in [its own research note](08-reuse-research-openbrain.md).
 
-Date: 13 October 2026. Revised 14 October 2026 for Go, the three binaries, Graphiti and Hindsight; revised 16 October 2026 for living-source extraction, continuous review and OpenBrain findings.
+Date: 13 October 2026. Revised 14 October 2026 for Go, the three binaries, Graphiti and Hindsight; revised 16 October 2026 for living-source extraction, continuous review and OpenBrain findings, and again the same day to replace approval states with earned support and to remove report ingestion.
 
 ## 1. Design principles
 
@@ -10,12 +10,12 @@ Date: 13 October 2026. Revised 14 October 2026 for Go, the three binaries, Graph
 2. **Authorisation before everything.** Candidates are filtered by the caller's permissions before ranking, snippets, fusion or any model sees them.
 3. **Two clocks.** Every fact separates when it was true (validity time) from when we recorded it (transaction time). Neither is inferred from the other.
 4. **Evidence has roots.** Derivation links let the service count distinct evidence, not repeated restatements.
-5. **Generated text starts as a proposal.** Evidence strengthens separately from epistemic kind. A versioned area policy may accept a derived claim when independently checkable sufficiency conditions pass; fluent text or repeated restatements never qualify on their own. Every step remains inspectable and correctable.
+5. **Support is earned, never granted.** Every claim is active from the moment it is written and carries a support score built only from distinct evidence roots, verification checks and evidenced use outcomes. Fluent text, repeated restatements, model confidence and retrieval earn nothing. There is no approval state; every step remains inspectable and correctable.
 6. **Small surface.** A finite MCP tool set, one database, one Go module. Anything larger must earn its place in the pilot.
 7. **One module, three binaries.** A local MCP binary on each computer, a remote API, and a background "dreamer" share the same Go packages for the domain rules, so there is one definition of validity, scope overlap and authorisation.
 8. **Adapt designs, not runtimes.** Graphiti and Hindsight contribute proven shapes (bitemporal edges, episodes as provenance, deterministic entity resolution, hybrid recall, citation-validated synthesis). Their write-path automation is deliberately not reproduced.
-9. **Extract from living sources.** Repositories, Confluence pages and other documents remain in their source systems. Froodbase stores evidenced records and versioned source references. A copy is retained only by an explicit, justified choice.
-10. **Human oversight remains available.** Reviewers can inspect the full contribution history, including accepted claims, and flag individual claims for reconsideration without rewriting their past state.
+9. **Extract from living sources; never store documents.** Repositories, Confluence pages, reports and other documents remain where they are. Froodbase stores evidenced records, versioned source references and at most a short excerpt per piece of evidence. Reports, conversations and transcripts are never an input.
+10. **Human oversight is correction, not approval.** Reviewers can inspect the full contribution history, flag, retract, supersede and resolve disputes. Nothing waits for them.
 
 ## 2. System context
 
@@ -58,7 +58,7 @@ flowchart LR
     S -. "cites" .-> C
 ```
 
-Froodbase stores claims and evidence *references*. It does not mirror repositories, Confluence pages, tickets or telemetry. A source reference names a stable location and revision where available, with a precise locator or short excerpt so a reviewer can check what supported extraction. If a source changes or disappears, its historical claim remains; detected loss or change of support is a review signal, not an inferred change to validity. Local investigation reports stay outside the boundary until a person explicitly shares extracted findings. Retaining their original body, or another document body, is an additional, separately approved option with a stated benefit and matching access class.
+Froodbase stores claims and evidence *references*. It does not mirror repositories, Confluence pages, tickets or telemetry. A source reference names a stable location and revision where available, with a precise locator or short excerpt so a reviewer can check what supported extraction. If a source changes or disappears, its historical claim remains; detected loss or change of support lowers the claim's support and is a review signal, not an inferred change to validity. Local investigation reports, conversations and transcripts are outside the boundary and never cross it: agents contribute individual evidenced claims as they work, and the report lists what was contributed.
 
 ## 3. Binaries and containers
 
@@ -67,7 +67,7 @@ One Go module, three binaries under `cmd/`, sharing `internal/` packages for the
 ```mermaid
 flowchart TB
     subgraph Workstation["Each engineer's computer"]
-        IDE["VS Code / Copilot"] -- "stdio MCP" --> MCP["froodbase-mcp<br/>local MCP server<br/>Entra sign-in, token cache,<br/>local ingestion preview,<br/>offline fallback"]
+        IDE["VS Code / Copilot"] -- "stdio MCP" --> MCP["froodbase-mcp<br/>local MCP server<br/>Entra sign-in, token cache,<br/>offline fallback"]
     end
 
     subgraph CA["Azure Container Apps environment"]
@@ -95,15 +95,14 @@ flowchart TB
 
 | Binary | Runs | Responsibility | Scaling |
 |---|---|---|---|
-| `froodbase-mcp` | On each computer, launched by the IDE over stdio | Exposes the finite tool set to the local agent; signs the person in with Entra and caches the token; forwards tool calls to `froodbase-api`; runs the report-ingestion **preview locally** so a report never leaves the machine before the user approves the change set; returns a clear "Froodbase unavailable" result so the agent can fall back to packaged and local knowledge | One process per IDE session |
+| `froodbase-mcp` | On each computer, launched by the IDE over stdio | Exposes the finite tool set to the local agent; signs the person in with Entra and caches the token; forwards tool calls to `froodbase-api`; never reads local documents; returns a clear "Froodbase unavailable" result so the agent can fall back to packaged and local knowledge | One process per IDE session |
 | `froodbase-api` | Azure Container Apps | Validates tokens, builds the authorisation context, serves the same tools over Streamable HTTP for clients that can do remote MCP, runs synchronous retrieval and transactional writes, writes audit events, enqueues jobs | Stateless, 2 or more replicas |
-| `froodbase-dreamer` | Azure Container Apps | Consumes the job queue: full-text and trigram maintenance, embedding generation, reconsideration of derived records, review-date sweeps, rule-based gap scans, consolidation and reflection, knowledge-view refresh | 1 replica per queue partition; singleton locks per periodic job |
+| `froodbase-dreamer` | Azure Container Apps | Consumes the job queue: full-text and trigram maintenance, embedding generation, support recomputation for dependants, use-without-challenge credits, review-date sweeps, rule-based gap scans, consolidation and reflection, knowledge-view refresh | 1 replica per queue partition; singleton locks per periodic job |
 | PostgreSQL | Flexible Server | Canonical records, revisions, projections, job queue, audit | Zone-redundant in production |
 
 Why a local binary rather than remote MCP only:
 
 - VS Code and Copilot launch stdio MCP servers without any OAuth configuration in the client; the remote OAuth flow in MCP clients is still uneven, and the Go SDK marks its client-side OAuth as experimental.
-- The ingestion preview can run on the user's machine. The raw report is parsed locally; only the approved change set is sent.
 - Token handling is in one place. `froodbase-mcp` acquires a token for the person with the device-code or broker flow and refreshes it; agents never see credentials.
 - The fallback is local. If `froodbase-api` is unreachable, `froodbase-mcp` answers with an explicit unavailable result rather than a transport error.
 
@@ -138,7 +137,7 @@ flowchart LR
     TOOLS --> RET["Retrieval engine"]
     TOOLS --> CON["Contribution engine"]
     TOOLS --> REV["Review and lifecycle engine"]
-    TOOLS --> ING["Report ingestion"]
+    TOOLS --> OUT["Outcome recorder"]
     RET --> CH["Candidate channels<br/>id / name, FTS, vector, graph"]
     CH --> FIL["Authorisation filter"]
     FIL --> MODE["Mode filter<br/>current / as-of / historical"]
@@ -146,21 +145,21 @@ flowchart LR
     RANK --> EXP["Explanation recorder"]
     CON --> VAL["Evidence validator"]
     CON --> CLS["Conflict classifier"]
-    CON --> POL["Acceptance policy"]
+    CON --> SUP["Support engine<br/>events, score, thresholds"]
     CON --> TX["Transactional writer<br/>revisions, jobs, audit"]
     REV --> TX
-    ING --> CON
+    OUT --> CON
 ```
 
 Component responsibilities:
 
 - **Auth context builder.** Validates the Entra token, resolves app roles and group claims to a set of (area, role) pairs, and captures the acting-for identity for agents. The context is immutable for the request and is the only input the authorisation filter and RLS session variable use.
 - **Retrieval engine.** Orchestrates the four channels, then filter, then mode, then ranking. Records every candidate decision so `explain_answer` can replay it (TR-55).
-- **Contribution engine.** Validates evidence (TR-61), resolves entities through deterministic tiers and raises merge proposals for anything fuzzier, classifies conflicts (TR-41), applies acceptance policy (TR-43) and writes the change set atomically with revisions, River jobs and audit events. The conflict classifier is a detector only: the interval-overlap test adapted from Graphiti and, where a model is used, Graphiti's conservative contradiction rules produce a dispute record. Nothing ever writes `valid_to` on an existing record except a reviewer's supersession with a stated end date.
-- **Review and lifecycle engine.** State transitions with role checks, base-revision checks and rationale capture.
-- **Report ingestion.** Two-step preview and commit (TR-62). Preview is pure: it computes the change set and returns it without writing.
-- **Contribution oversight.** Area-scoped queries join each contribution to its individual claims, revisions, source references, review flags and decisions, including accepted and historical records. A reviewer can flag one claim with a reason; its accepted state remains until a later authorised decision. Operational audit events retain who did what, while the contribution and revision records retain what knowledge was entered and how it was judged (TR-45, TR-75).
-- **Support assessment and policy engine.** Reassesses a claim when independent evidence arrives or support changes, keeping epistemic kind, support and lifecycle disposition distinct. A qualifying proposal may be accepted by the area's versioned policy, with the rule, input revisions and rationale appended to history. Ambiguous sufficiency, source drift and disputes go to reviewers rather than a universal approval queue (TR-29, TR-43, TR-44).
+- **Contribution engine.** Validates evidence (TR-61), resolves entities through deterministic tiers and raises merge proposals for anything fuzzier, classifies conflicts (TR-41), asks the support engine for each record's initial events and score, and writes the change set atomically with revisions, River jobs and audit events. The conflict classifier is a detector only: the interval-overlap test adapted from Graphiti and, where a model is used, Graphiti's conservative contradiction rules produce a dispute record. Nothing ever writes `valid_to` on an existing record except a reviewer's supersession with a stated end date.
+- **Review and lifecycle engine.** Dispute resolution, supersession, retraction, verification and flags, with role checks, base-revision checks and rationale capture (TR-40, TR-45).
+- **Outcome recorder.** `report_outcome` (TR-59): turns an evidenced success into an observation with its own root linked to the record it tested, routes an evidenced failure through the conflict classifier, and keeps inapplicable and not-used reports for evaluation only.
+- **Contribution oversight.** Area-scoped queries join each contribution to its individual claims, revisions, source references, support events, flags and decisions. A reviewer can flag one claim with a reason; its state remains until a later authorised decision. Operational audit events retain who did what, while the contribution and revision records retain what knowledge was entered and how its support changed (TR-45, TR-75).
+- **Support engine.** Owns the support-event vocabulary (TR-29) and the area support configuration (TR-43). Appends events when roots are linked, verifications recorded, outcomes reported, sources change, claims are contradicted, flagged or lose a supporting record; projects the score; compares it with the area threshold per kind so retrieval can set `insufficient_evidence`. It never changes a claim's kind or lifecycle state and never infers a date.
 
 ## 5. Data model
 
@@ -169,8 +168,8 @@ erDiagram
     KNOWLEDGE_AREA ||--o{ ENTITY : contains
     KNOWLEDGE_AREA ||--o{ ASSERTION : contains
     KNOWLEDGE_AREA ||--o{ LESSON : contains
-    KNOWLEDGE_AREA ||--o{ SUPPORT_ASSESSMENT : contains
-    KNOWLEDGE_AREA ||--o{ ACCEPTANCE_POLICY : configures
+    KNOWLEDGE_AREA ||--o{ SUPPORT_EVENT : contains
+    KNOWLEDGE_AREA ||--o{ SUPPORT_CONFIG : configures
     KNOWLEDGE_AREA ||--o{ GROUP_MAPPING : grants
 
     ENTITY ||--o{ ENTITY_NAME : "named by"
@@ -183,7 +182,6 @@ erDiagram
     ASSERTION ||--o{ CLAIM_EVIDENCE : "supported by"
     LESSON ||--o{ CLAIM_EVIDENCE : "supported by"
     EVIDENCE ||--o{ CLAIM_EVIDENCE : supports
-    REPORT_REVISION ||--o{ EVIDENCE : "may be"
 
     ASSERTION ||--o{ REVISION : "versioned by"
     RELATIONSHIP ||--o{ REVISION : "versioned by"
@@ -196,9 +194,11 @@ erDiagram
     RELATIONSHIP ||--o{ SUPERSESSION : "replaced by"
     ASSERTION ||--o{ DISPUTE : "party to"
     RELATIONSHIP ||--o{ DISPUTE : "party to"
-    ASSERTION ||--o{ SUPPORT_ASSESSMENT : "assessed by"
-    RELATIONSHIP ||--o{ SUPPORT_ASSESSMENT : "assessed by"
-    LESSON ||--o{ SUPPORT_ASSESSMENT : "assessed by"
+    ASSERTION ||--o{ SUPPORT_EVENT : "supported by"
+    RELATIONSHIP ||--o{ SUPPORT_EVENT : "supported by"
+    LESSON ||--o{ SUPPORT_EVENT : "supported by"
+    ASSERTION ||--o{ OUTCOME : "tested by"
+    LESSON ||--o{ OUTCOME : "tested by"
 
     REVISION ||--|| AUDIT_EVENT : "recorded as"
     REVISION ||--o{ RIVER_JOB : "schedules"
@@ -250,6 +250,7 @@ erDiagram
         timestamptz verified_at
         timestamptz review_due_at
         text lifecycle_state
+        numeric support_score
         bool needs_reconsideration
         int revision
     }
@@ -283,15 +284,37 @@ erDiagram
         timestamptz observed_at
         timestamptz recorded_at
     }
-    SUPPORT_ASSESSMENT {
+    SUPPORT_EVENT {
         uuid id PK
         uuid record_id
         uuid area_id FK
-        text support_state
+        text event_type
         jsonb evidence_root_ids
-        text policy_version
+        jsonb scope
+        uuid actor_user_id
+        uuid actor_agent_id
+        text job_name
+        text config_version
         text rationale
-        timestamptz assessed_at
+        timestamptz at
+    }
+    SUPPORT_CONFIG {
+        uuid area_id FK
+        text version
+        jsonb event_weights
+        numeric use_without_challenge_cap
+        jsonb threshold_by_kind
+        jsonb allowed_contributors
+    }
+    OUTCOME {
+        uuid id PK
+        uuid record_id
+        int record_revision
+        uuid request_id
+        text outcome
+        jsonb scope
+        uuid observation_id
+        text reason
     }
     REVISION {
         uuid record_id
@@ -351,49 +374,45 @@ Notes on the model:
 
 - **Scope** is a JSONB object with fixed keys (`environment`, `region`, `version_min`, `version_max`, `cluster`, `tenant`). A missing key means unspecified. Overlap is computed by a SQL function so the conflict classifier and the mode filter use the same definition (TR-26).
 - **Evidence roots.** `root_evidence_id` points at the original observation when an evidence record is itself a restatement (for example a report excerpt quoting a telemetry query). Corroboration counts distinct roots (TR-25).
-- **Three independent axes.** Epistemic kind (`observation`, `decision`, `inference`) says what a statement is; support assessments say what independent, relevant evidence currently supports it; lifecycle says whether it is proposed, accepted, disputed and so on. The latest support assessment is a projection of append-only assessments with evidence roots, relevance/sufficiency findings, policy version and rationale. A policy-accepted inference stays an inference. Updating support never guesses a validity date or erases an earlier assessment (TR-29).
-- **Living-source extraction.** A repository commit and path, Confluence page ID and version, or equivalent stable source reference identifies the material examined. `source_locator` can name a line range or section; a short excerpt may preserve the basis for a historical claim when the live source changes. Importer and extractor identity/version and optional input digest belong to contribution or evidence provenance. A content fingerprint suggests duplicate claims but never merges independent evidence roots. Original-author attribution is separate from the authenticated contributor and may remain unknown (TR-24, TR-65). Original document bodies are absent unless source-copy retention was chosen under TR-28.
+- **Three independent axes.** Epistemic kind (`observation`, `decision`, `inference`) says what a statement is and never changes; `support_score` says how well evidence and experience back it; lifecycle says whether it is active, disputed, superseded or retracted. The score is a projection of the append-only `support_event` rows under the area's `support_config` version, so it can be recomputed and explained. A well-supported inference stays an inference. Updating support never guesses a validity date or erases an earlier event (TR-29).
+- **Living-source extraction.** A repository commit and path, Confluence page ID and version, or equivalent stable source reference identifies the material examined. `source_locator` can name a line range or section; a short excerpt may preserve the basis for a historical claim when the live source changes. Importer and extractor identity/version and optional input digest belong to contribution or evidence provenance. A content fingerprint suggests duplicate claims but never merges independent evidence roots. Original-author attribution is separate from the authenticated contributor and may remain unknown (TR-24, TR-65). No document body is ever stored.
 - **Revisions** hold a full JSONB snapshot of the record at each change. This makes `get_history` and `get_as_of` by recording time trivial, and keeps the live tables narrow.
 - **Validity-time queries** use a GiST index on `tstzrange(valid_from, valid_to)` combined with lifecycle state (TR-34).
 - **Full-text** uses a generated `tsvector` column with an English configuration plus a trigram index on entity names for near-miss matching (TR-51).
 - **Embeddings** are nullable; the row is committed before the dreamer fills them (TR-58).
-- **Contribution as episode.** Each `propose_contribution` or `ingest_report` commit is a `contribution` record (who, acting agent, client, investigation id, recorded time) and a `contribution_claims` join lists every record it asserted or re-asserted. This is Graphiti's episode-to-edge provenance, with the contribution's recording time kept separate from any validity date.
-- **Queryable knowledge history.** The contribution, claim and revision records remain available to authorised area reviewers independently of the 400-day operational audit-event retention. Filtered, paginated reads include proposed, accepted, disputed, rejected and superseded claims. Review flags and their reasons are appended to history and enter the due-for-review queue without altering the claim's validity or acceptance. Per-area authorisation applies before counts, joins and source excerpts (TR-45, TR-75).
+- **Contribution as episode.** Each `contribute` call is a `contribution` record (who, acting agent, client, investigation id, recorded time) and a `contribution_claims` join lists every record it asserted or re-asserted. This is Graphiti's episode-to-edge provenance, with the contribution's recording time kept separate from any validity date.
+- **Queryable knowledge history.** The contribution, claim, support-event and revision records remain available to authorised area reviewers independently of the 400-day operational audit-event retention. Filtered, paginated reads include active, disputed, superseded and retracted claims. Review flags and their reasons are appended to history and enter the due-for-review queue without altering the claim's validity or state. Per-area authorisation applies before counts, joins and source excerpts (TR-45, TR-75).
 - **Entity aliases and reversible merges.** `entity_alias` holds every name an entity has carried and, after a merge, which entity id was folded into which with the curator's rationale. A merge never rewrites claims; it records an alias, so it can be undone. Neither Graphiti nor Hindsight can un-merge.
 - **Relationship types with cardinality.** `relationship_type` holds the allowed (source type, target type) pairs and whether the predicate is single-valued (one owner) or multi-valued (many dependencies). Cardinality is what lets the conflict classifier tell "replaced" from "added"; its absence is the root of Graphiti's mis-retirement issue.
-- **Causal links.** A `caused_by` link between assertions is an inference, not a direct observation. It begins proposed, requires independently checkable causal support for policy acceptance or goes to a reviewer, and remains labelled inferred thereafter. It is the one Hindsight link type adopted; semantic links are a rebuildable projection and are deferred.
+- **Causal links.** A `caused_by` link between assertions is an inference, not a direct observation. It starts with the support of its roots, earns more when a remedy built on it succeeds with evidence, and remains labelled inferred at every level. It is the one Hindsight link type adopted; semantic links are a rebuildable projection and are deferred.
 
 ## 6. Temporal and lifecycle semantics
 
 ```mermaid
 stateDiagram-v2
-    [*] --> proposed : propose_contribution / ingest_report / reflection
-    proposed --> accepted : reviewer or evidence-qualified area policy
-    proposed --> rejected : reviewer rejects
-    accepted --> verified : fresh evidence checked by reviewer or area policy
-    verified --> accepted : verified_at older than freshness policy (soft, computed)
-    accepted --> disputed : conflicting record overlaps in scope and time
-    verified --> disputed : conflicting record overlaps in scope and time
-    disputed --> accepted : reviewer resolves in favour
+    [*] --> active : contribute / report_outcome / reflection
+    active --> disputed : conflicting record overlaps in scope and time
+    disputed --> active : reviewer resolves in favour
     disputed --> superseded : reviewer resolves against
-    accepted --> superseded : newer record supersedes with reason
-    verified --> superseded : newer record supersedes with reason
+    active --> superseded : declared correction with reason
+    active --> retracted : contributor or reviewer withdraws with reason
+    disputed --> retracted : contributor or reviewer withdraws with reason
     superseded --> [*]
-    rejected --> [*]
+    retracted --> [*]
 ```
 
-Validity is orthogonal to lifecycle. A `verified` record whose `valid_to` has passed is correct history, not an error. The `current` mode therefore asks three questions of each record: is it accepted or verified, is it not superseded, and does its validity range include now (or is `valid_to` null). Records passing all three but with stale `verified_at` are returned with a `stale: true` flag rather than excluded (TR-31).
+Validity is orthogonal to lifecycle. An active record whose `valid_to` has passed is correct history, not an error. The `current` mode therefore asks two questions of each record: is it active or disputed, and does its validity range include now (or is `valid_to` null). Records passing both but with stale `verified_at` are returned with a `stale: true` flag rather than excluded (TR-31); disputed records are returned labelled disputed.
 
-Support is orthogonal too. New independent evidence can increase support for a proposed or accepted claim without relabelling an inference as an observation. Source drift or withdrawn support appends a weaker assessment and raises reconsideration; it does not silently revoke acceptance or infer that validity ended. A policy transition is a separate append-only decision naming the policy version, checked root evidence, input revisions and rationale. An unresolved contradiction creates a dispute and blocks automatic promotion or an unqualified current answer. The unmatched or unevaluable case stays proposed for human review (TR-29, TR-43, TR-44).
+Support is orthogonal too, and it is where a claim's certainty lives. Every record enters active with a score projected from its initial events: one `root_added` per distinct evidence root. It rises with further roots, with `verified` events (a person or agent re-checked it against fresh evidence on a date, in a scope), with `outcome_succeeded` events (someone applied it and reports with evidence that it worked), and, by a bounded amount, with `use_without_challenge` credits the dreamer appends while the record is being used and nothing contradicts it. It falls with `outcome_failed`, `contradicted`, `source_changed`, `flagged` and `support_retracted`. Retrieval appends nothing. The area's `support_config` gives each event type a weight within service bounds, caps the use credit below the inference threshold, and sets the threshold per kind under which answers carry `insufficient_evidence`. Nothing in this machinery changes a claim's kind, resolves a dispute or infers a date (TR-29, TR-43, TR-44).
 
 Worked example from the pitch, as stored:
 
-| Record | Kind | Scope | valid_from | valid_to | recorded_at | State |
+| Record | Kind | Scope | valid_from | valid_to | recorded_at | State and support |
 |---|---|---|---|---|---|---|
-| Callback failure reproduced | observation | prod, v2.3 | 2026-09-02 | null | 2026-09-02 | verified |
-| Fix merged (PR 418) | observation | repo main | 2026-09-05 | null | 2026-09-05 | accepted |
-| v2.4 deployed, remediation verified | observation | prod, v2.4 | 2026-09-09 | null | 2026-09-09 | verified, supersedes failure record with reason "remediated in 2.4" |
-| Older investigation imported | evidence + inference | prod, v2.3 | 2026-09-02 | 2026-09-09 | 2026-10-13 | accepted as historical; as-of 2026-09-03 query returns it, current does not |
+| Callback failure reproduced | observation | prod, v2.3 | 2026-09-02 | null | 2026-09-02 | active; two roots, verified 2 Sep |
+| Fix merged (PR 418) | observation | repo main | 2026-09-05 | null | 2026-09-05 | active; one root |
+| v2.4 deployed, remediation verified | observation | prod, v2.4 | 2026-09-09 | null | 2026-09-09 | active; supersedes the failure record with reason "remediated in 2.4" |
+| Older investigation imported | evidence + inference | prod, v2.3 | 2026-09-02 | 2026-09-09 | 2026-10-13 | active, historical by validity; as-of 2026-09-03 query returns it, current does not |
 
 The merge record does not supersede the failure record because its scope (repository) does not overlap production. Only the verified deployment does.
 
@@ -421,11 +440,11 @@ sequenceDiagram
     end
     DB-->>API: candidates (already RLS-filtered)
     API->>API: application-level authorisation filter (defence in depth)
-    API->>API: mode filter: accepted/verified, not superseded, validity includes now
-    API->>API: fuse and rank, assess support from distinct evidence roots
+    API->>API: mode filter: active or disputed, validity includes now
+    API->>API: fuse and rank by support score, verification and scope match
     API->>API: record explanation trace
     API->>DB: audit restricted reads
-    API-->>Ag: results with kind, state, support, scope, validity, citations, stale and insufficient_evidence flags
+    API-->>Ag: results with kind, state, support score and events, scope, validity, citations, stale and insufficient_evidence flags
 ```
 
 ### 7.2 Contribution with conflict classification
@@ -437,33 +456,33 @@ sequenceDiagram
     participant DB as PostgreSQL
     participant W as froodbase-dreamer
 
-    Ag->>API: propose_contribution(change set, idempotency key, base revisions)
+    Ag->>API: contribute(change set, idempotency key, base revisions)
     API->>DB: check idempotency key
     alt key seen
         DB-->>API: prior result
         API-->>Ag: prior result (no duplicate)
     else new
         API->>API: validate evidence URIs and access classes
-        API->>DB: find overlapping accepted records (subject, type, scope, validity)
+        API->>DB: find overlapping active records (subject, type, scope, validity)
         API->>API: classify: time change / scope / correction / contradiction
-        API->>API: assess support from independent roots; apply versioned area policy per record
+        API->>API: support engine: one root_added per distinct root, contradicted where disputed, score under the area config
         API->>DB: begin transaction and check base revisions
         alt base revision stale
             API-->>Ag: conflict with current revision (no write)
         else ok
-            API->>DB: insert records, support assessments, policy decisions, revisions, disputes, River jobs, audit, then commit
-            API-->>Ag: record ids, states, support, policy receipt, disputes raised
+            API->>DB: insert records, support events, revisions, disputes, River jobs, audit, then commit
+            API-->>Ag: record ids, kinds, states, support, disputes raised
             W->>DB: claim River jobs
-            W->>DB: update FTS, generate embeddings, reassess dependants and flag exceptions
+            W->>DB: update FTS, generate embeddings, recompute dependants' support
         end
     end
 ```
 
 ### 7.3 Correction and propagation
 
-A reviewer calls `review_contribution(supersede, old_id, new_id, reason, base_revision)`. The lifecycle engine writes a supersession link and new revisions for both records in one transaction, then enqueues a `reconsider_derived` job. The dreamer walks derivation links from the old record and sets `needs_reconsideration` on every dependent inference and lesson. Those appear in `list_due_for_review` for the area's reviewers. `current` search excludes the superseded record immediately because mode filtering reads lifecycle state from the canonical table, not from a projection (TR-94).
+A contributor or reviewer calls `review_claim(supersede, old_id, new_id, reason, base_revision)`. The lifecycle engine writes a supersession link and new revisions for both records in one transaction, then enqueues a `reconsider_derived` job. The dreamer walks derivation links from the old record, appends `support_retracted` to every dependent inference and lesson, recomputes their scores and sets `needs_reconsideration` on those that fell below threshold. Those appear in `list_due_for_review` for the area's reviewers. `current` search excludes the superseded record immediately because mode filtering reads lifecycle state from the canonical table, not from a projection (TR-94). Retraction follows the same path.
 
-### 7.4 Explicit report ingestion
+### 7.4 Contributing during an investigation, and reporting an outcome
 
 ```mermaid
 sequenceDiagram
@@ -472,26 +491,21 @@ sequenceDiagram
     participant MCP as froodbase-mcp (local)
     participant API as froodbase-api
 
-    U->>Ag: "Share the findings from this investigation"
-    Ag->>MCP: ingest_report(preview, report path, target area)
-    MCP->>MCP: parse report locally, classify evidence / hypotheses / conclusions, drop unshareable references
-    MCP->>API: resolve entity names and check area permission (names only)
-    API-->>MCP: entity matches, permitted
-    MCP-->>Ag: proposed change set and destination area
-    Ag-->>U: shows every record that would be created
-    U->>Ag: approves, possibly removing items
-    opt source copy has a stated benefit
-        Ag-->>U: shows copy, destination and access class
-        U->>Ag: separately approves retaining the copy
-    end
-    Ag->>MCP: ingest_report(commit, change set, optional approved copy, idempotency key)
-    MCP->>API: propose_contribution(change set, optional approved copy)
-    API-->>MCP: record ids and states
-    MCP-->>Ag: result
-    Ag-->>U: confirmation, local report unchanged
+    Ag->>MCP: search(symptom, scope, mode=historical)
+    MCP->>API: search
+    API-->>Ag: lesson L (inference, support 0.4, applicability "staging only")
+    Ag->>Ag: applies the remedy from L in prod EU, checks telemetry afterwards
+    Ag->>MCP: contribute(observation "restarts stopped after remedy", telemetry query cited)
+    MCP->>API: contribute
+    API-->>Ag: observation O1 (active, one root)
+    Ag->>MCP: report_outcome(L, revision, succeeded, scope prod EU, evidence O1)
+    MCP->>API: report_outcome
+    API->>API: link O1's root to L, append outcome_succeeded in scope prod EU, recompute L's score
+    API-->>Ag: L now support 0.7, applicability extended to prod EU (verified 9 Sep)
+    Ag-->>U: local report lists O1 and the outcome on L; nothing from the report was sent
 ```
 
-The report body never leaves the machine during preview; `froodbase-mcp` parses it locally and asks `froodbase-api` only to resolve entity names and confirm permission. The normal commit sends the approved extracted change set with shareable source references. A copy of the report is sent only if the preview also explains the benefit of retaining it and the user separately approves its content, destination and access classification. Claims do not need a retained report revision and must still have shareable evidence. A retained copy is another representation of the same evidence root, not corroboration.
+The agent contributes what it can evidence, one finding at a time, while the investigation runs. Each contribution is a small change set with its own shareable citations; the conversation and the report never leave the machine, and `froodbase-mcp` never reads them. The local report lists the identifiers written, so the person can inspect or retract any of them afterwards. Importing an old report works the same way: a skill reads the file locally, extracts the findings it can cite, and calls `contribute`; the file is not sent and nothing of it is retained. An outcome report is how experience becomes certainty: a success with evidence is a new observation and a new root for the record it tested; a failure with evidence lowers it and, if it contradicts the record, raises a dispute.
 
 ## 8. Retrieval design in detail
 
@@ -503,9 +517,9 @@ The report body never leaves the machine during preview; `froodbase-mcp` parses 
 | Graph channel | Relationship expansion from matched entities to depth 1 (configurable to 2), filtered by relationship validity in the requested mode; candidates scored by shared entities with the query's entities | Answers "what depends on X" without text matching. Hindsight's single-hop arm scored by shared entities is the model; a recursive CTE bounds depth |
 | Authorisation filter | RLS plus application check on `area_id` and `access_class` | Defence in depth; RLS alone can be bypassed by privileged roles |
 | Mode filter | SQL predicate over lifecycle state and validity range | Current, as-of and historical semantics live in one function used by every channel |
-| Fusion | Reciprocal rank fusion across channels (k of 60, as both reference projects use), then boosts for `verified`, corroboration by distinct evidence roots, and scope match; no recency boost in current mode; no mention-count boost | Prevents "newer text wins". Graphiti's episode-mentions reranker and Hindsight's `proof_count` boost both reward restatement, so they are deliberately not reproduced |
+| Fusion | Reciprocal rank fusion across channels (k of 60, as both reference projects use), then boosts for support score, verification recency and scope match; no recency boost in current mode; no mention-count boost | Prevents "newer text wins". Graphiti's episode-mentions reranker and Hindsight's `proof_count` boost both reward restatement, so they are deliberately not reproduced; support counts roots and outcomes, not mentions |
 | Explanation | Per-authorised-candidate record of channel hits, mode-filter outcomes and final rank, stored for the request id | Supports `explain_answer` and the evaluation harness without revealing inaccessible candidate identities or counts |
-| Outcome feedback | Append-only used, ignored or inapplicable report linked to the request and exact returned revision, with caller and reason | Separates ranking success from evidence that actually helped; feedback never counts as corroboration or changes acceptance by itself (TR-59) |
+| Outcome reports | `report_outcome` links the request and exact returned revision to succeeded, failed, inapplicable or not-used, with scope, caller and, for succeeded and failed, evidence of what was observed | An evidenced success is a new observation and root for the record; an evidenced failure lowers it or disputes it; inapplicable and not-used inform evaluation only; a bare claim of success earns only the bounded use credit (TR-59) |
 
 The same provenance links support two reviewer questions: which sources support this claim, and which derived records would need reconsideration if it changed? Traverse only records the caller may see, bound the depth and result count, and say when the view was truncated. These are views over existing derivation records, not a separate graph store. A source version change detected during later extraction or checking raises a review flag; it does not infer when the underlying claim ceased to be valid (PR-14, PR-100).
 
@@ -516,10 +530,10 @@ Everything that works on stored data without a caller waiting runs in `froodbase
 | Job | Trigger | What it does |
 |---|---|---|
 | Index maintenance | Per write | Full-text and trigram projections; embeddings where enabled |
-| Reconsideration | Per state change | Walks derivation links and marks dependents `needs_reconsideration` |
-| Review sweep | Periodic | Marks records past `review_due_at`; marks `stale` where `verified_at` is older than the area's freshness policy |
+| Reconsideration | Per state change or support change | Walks derivation links, appends the matching support events to dependants, recomputes their scores and marks those below threshold `needs_reconsideration` |
+| Review sweep | Periodic | Marks records past `review_due_at`; marks `stale` where `verified_at` is older than the area's freshness policy; appends `use_without_challenge` to records used in the period with no challenge, up to the area's cap |
 | Gap scan | Periodic per area | Rule-based, no model (TR-82) |
-| Consolidation and reflection | Periodic per area, budgeted | Groups related records and drafts proposed lessons (below) |
+| Consolidation and reflection | Periodic per area, budgeted | Groups related records and drafts derived lessons (below) |
 | Knowledge views | After consolidation, watermark-driven | Regenerates Markdown views per area as deltas (section 9.1) |
 
 Reflection is a dreamer job, never a synchronous call.
@@ -532,7 +546,7 @@ flowchart TD
     C --> B{"Model budget<br/>available?"}
     B -- no --> Q
     B -- yes --> Y["Synthesis call<br/>input: only records readable in this context"]
-    Y --> P["Proposed lesson or inference<br/>with derivation links to every input"]
+    Y --> P["Derived lesson or inference, active<br/>with derivation links to every input"]
     P --> Q
 ```
 
@@ -540,14 +554,14 @@ Three rules keep reflection honest:
 
 - The synthesis prompt receives record identifiers and bodies; the output must cite identifiers it was given. The dreamer keeps the set of identifiers it showed the model and strips any citation outside that set, then discards an output left with no valid citations. This is Hindsight's `available_ids` and `drop_unseen_ids` discipline.
 - Corroboration shown to the model is computed from evidence roots, so three restatements of one observation are presented as one.
-- Output begins as a proposed lesson or inference with derivation links. It never updates or deletes an existing record. Hindsight's consolidation asks its model for creates, updates and deletes and applies them; Froodbase keeps the bookkeeping (`consolidated_at` watermark per source record, source identifiers on the proposal, history rows) and drops the mutation.
-- Assessment asks separately whether cited records exist, are relevant and sufficiently support the conclusion. Deterministic citation checks enforce structural validity; model opinion alone cannot establish sufficiency or accept its own output. Versioned area policies may accept generated inferences only when their independently checkable evidence predicates pass; other cases go to review. Store the policy and prompt version, source revisions and rationale with the decision (TR-85).
+- Output is an active, derived lesson or inference with derivation links and the support of its roots. It never updates or deletes an existing record. Hindsight's consolidation asks its model for creates, updates and deletes and applies them; Froodbase keeps the bookkeeping (`consolidated_at` watermark per source record, source identifiers on the proposal, history rows) and drops the mutation.
+- Assessment asks separately whether cited records exist, are relevant and sufficiently support the conclusion. Deterministic citation checks enforce structural validity; the model's own opinion of its output appends no support event. Weak assessments queue the draft for a reviewer; strong ones change nothing, because support comes from roots, verifications and outcomes alone. Store the prompt version, source revisions and rationale with the assessment (TR-85).
 
 ### 9.1 Knowledge views
 
 Markdown views per knowledge area (PR-07) are generated by the dreamer and adapted from Hindsight's knowledge pages:
 
-- A folder tree per area; each page is defined by a query over accepted and verified records and a scope.
+- A folder tree per area; each page is defined by a query over active records above the area threshold and a scope.
 - The first build is full; later builds are deltas, with untouched sections copied through unchanged so diffs are readable.
 - Each page carries a watermark of the newest revision it has read. The page is stale when any in-scope record has a newer revision.
 - Because Froodbase is append-only, a supersession or redaction is itself a new revision and moves the watermark. This closes the documented Hindsight gap where a page citing a deleted fact keeps reporting itself current.
@@ -568,9 +582,9 @@ flowchart LR
 | Role | May |
 |---|---|
 | Froodbase.Reader | search, get_record, get_history, get_as_of, list_relationships, explain_answer within mapped areas |
-| Froodbase.Contributor | Reader plus propose_contribution, ingest_report (preview and commit) within mapped areas |
-| Froodbase.Reviewer | Contributor plus review_contribution, verify_record, list_due_for_review, resolve disputes within mapped areas |
-| Froodbase.Admin (operators only) | Group mappings, acceptance policy, redaction; no privileged bypass of RLS for reads |
+| Froodbase.Contributor | Reader plus contribute, report_outcome, and review_claim limited to retracting or superseding their own records, within mapped areas |
+| Froodbase.Reviewer | Contributor plus review_claim on any record (dispute, resolve, supersede, retract, verify, flag), list_due_for_review, contribution history, within mapped areas |
+| Froodbase.Admin (operators only) | Group mappings, area support configuration, redaction; no privileged bypass of RLS for reads |
 
 Agents never hold a standalone Contributor role; they act on behalf of a person whose roles apply. The audit event records both identities.
 
@@ -585,12 +599,14 @@ Agents never hold a standalone Contributor role; they act on behalf of a person 
 | D5 | River (Postgres-backed, transactional) for all async work | Service Bus or Storage queues; hand-rolled outbox table | One transaction commits record and job; no second infrastructure dependency; queue depth is a SQL query; periodic and unique jobs come for free. MPL-2.0 is file-level copyleft and acceptable as an unmodified dependency |
 | D6 | Finite MCP tool set, no query language | Exposed SQL or GraphQL | Assessment and safety rules: no arbitrary SQL from agents |
 | D7 | Authorisation in application plus RLS | RLS only; application only | RLS is bypassable by table owners; application-only is one bug from a leak |
-| D8 | Reflection as a budgeted batch job writing proposals, followed by independent evidence and area-policy assessment | Synchronous reflection tool; ungoverned auto-accepted summaries | Keeps model cost bounded; generated prose alone never confers authority |
-| D9 | Report ingestion as preview then commit | Single-step ingestion; automatic ingestion on report generation | Reports remain local until explicit sharing; the user sees extracted records and separately approves any original copy that crosses the boundary |
+| D8 | Reflection as a budgeted batch job writing active, derived records that earn support like any other | Synchronous reflection tool; ungoverned summaries served as fact; an approval queue for every draft | Keeps model cost bounded; generated prose alone never confers authority, and nothing waits for a person |
+| D9 | Reports, conversations and transcripts are never an input; agents contribute evidenced findings as they work and list them in the report | Report ingestion with local preview and approval; automatic ingestion on report generation; optional retained copies | The privacy rule is about the whole document, not the pieces; a per-claim approval step was never the intent and would stall learning; a report store is a non-goal |
 | D10 | Adapt designs from Graphiti and Hindsight; adopt neither runtime nor service | Adopt Hindsight as a service; adopt Graphiti; build with no reference | Research on 14 Oct 2026 (section 15): Graphiti has no PostgreSQL backend and its maintainers closed the request; Hindsight's open-source auth is one shared key per schema with no per-caller permission; both apply model decisions to the write path in ways Froodbase forbids. Both are Python, so no code reuse into Go in any case |
 | D12 | Go, one module, three binaries (`froodbase-mcp`, `froodbase-api`, `froodbase-dreamer`) | Single service with remote MCP only; separate repositories per binary | Team language. Shared packages give one implementation of validity, scope and authorisation rules. The local binary keeps reports local during preview and simplifies client sign-in |
 | D13 | Entity merges are recorded as aliases and are reversible; the model tier of entity resolution only proposes | Graphiti-style uuid rewrite; Hindsight-style irreversible merge | Both reference projects document false-merge risk and neither can undo one |
-| D14 | Contradiction detection produces dispute records; it never infers `valid_to` or retires an existing claim | Graphiti-style auto-invalidation; Hindsight-style consolidation rewrite | Pitch requirement; Graphiti's open issues show the cost of the alternative. This does not prevent separate evidence-qualified policy acceptance of a proposal |
+| D14 | Contradiction detection produces dispute records; it never infers `valid_to` or retires an existing claim | Graphiti-style auto-invalidation; Hindsight-style consolidation rewrite | Pitch requirement; Graphiti's open issues show the cost of the alternative. A contradiction lowers support and disputes; only a person resolves |
+| D15 | Certainty is an earned support score; the lifecycle has no proposed or accepted state | Reviewer acceptance of every generated claim (13 October design); versioned acceptance policies with sufficiency predicates (first 16 October design) | Nobody can write a checkable predicate for a causal inference, so a policy gate collapses back into human review and knowledge stops at "proposed". Roots, verifications and evidenced outcomes are checkable; echoes, retrievals and model confidence are excluded, so the pitch's concern about fluency stands |
+| D16 | A successful, evidenced use of a record is corroboration; a retrieval is not | Count usage or retrievals as confidence; count nothing from use | Applying a lesson and observing the result is a new observation with its own root in a new scope, which is exactly what verification means; reading it proves nothing |
 | D11 | Streamable HTTP MCP with Entra as authorisation server | Custom API key auth | Matches MCP authorisation spec and reuses existing identities |
 
 ## 12. Deployment topology
@@ -636,7 +652,7 @@ Private networking between Container Apps and Flexible Server; no public databas
 - Exact Entra claim layout for area scoping (group IDs in token versus directory lookup) depends on tenant group count; decide in phase 1.
 - Whether lesson sections need their own embeddings or one per lesson; decide from the evaluation corpus.
 - Freshness policy defaults per record type (how old `verified_at` may be before `stale`) are curator settings; propose 90 days for observations, none for decisions.
-- The pilot areas must specify which inference classes, if any, have independently checkable sufficiency predicates for automatic acceptance; unevaluable causal claims remain proposed for review.
+- Default support weights, the use-without-challenge cap and the per-kind thresholds are set from the evaluation corpus in phase 2; the service ships conservative defaults so an inference needs more than one root or one outcome to clear its threshold.
 - Redaction interaction with revision snapshots: snapshots containing a redacted excerpt must also be scrubbed; design the scrub job in phase 2.
 
 ## 15. What was adapted from Graphiti and Hindsight
