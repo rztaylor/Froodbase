@@ -11,5 +11,6 @@ Derived from [Froodbase product pitch](../pitch/Froodbase%20product%20pitch.md) 
 | [05 How Froodbase works](05-how-froodbase-works.md) | Plain-language explanation of relationships, provenance, change history, temporal correctness, retrieval, learning and reflection, with analogies and diagrams. | are new to these concepts and want to understand the mechanism without reading code |
 | [06 Reuse research: Graphiti and Hindsight](06-reuse-research-graphiti-hindsight.md) | What each project does, pinned to a revision with sources; which designs Froodbase adapts, which it refuses, and why neither is a service dependency. | want the evidence behind the architecture's reuse decisions |
 | [07 Local MVP](07-local-mvp.md) | The approved first build: the brain running locally in Docker Compose with basic auth, as six slices that advance all three binaries together, with the deviations from the Azure design and the exit gate. | are building now, or want to know what is deferred |
+| [08 Reuse research: OpenBrain](08-reuse-research-openbrain.md) | Which OB1 capture, import, review and recall practices strengthen Froodbase's existing design, with source links and implementation boundaries. | want the evidence behind these additions |
 
 Suggested reading order for a newcomer: 05, then 01, then 03. Contributors start with 07.

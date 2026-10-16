@@ -1,8 +1,8 @@
 # Froodbase: product requirements
 
-Status: draft for scoping review. Derived from [Froodbase product pitch](../pitch/Froodbase%20product%20pitch.md) and the two background assessments. Requirements are numbered `PR-nn` so that the [technical requirements](02-technical-requirements.md) and [implementation plan](04-implementation-plan.md) can trace to them.
+Status: draft for scoping review. Derived from the [Froodbase product pitch](../pitch/Froodbase%20product%20pitch.md), the background assessments and the [OpenBrain reuse assessment](08-reuse-research-openbrain.md). Requirements are numbered `PR-nn` so that the [technical requirements](02-technical-requirements.md) and [implementation plan](04-implementation-plan.md) can trace to them.
 
-Date: 13 October 2026.
+Date: 13 October 2026. Revised 16 October 2026 for living-source extraction, continuous review and OpenBrain findings.
 
 ## 1. Purpose
 
@@ -89,9 +89,10 @@ These are the acceptance-level user stories. Each must be answerable with source
 | ID | Requirement |
 |---|---|
 | PR-10 | Every assertion, relationship and lesson records where it came from (source URI and revision), who contributed it (person and, where applicable, agent) and when. |
-| PR-11 | Evidence is held as references to sources that the intended audience can actually open. A private local file path is not an acceptable shared citation. |
+| PR-11 | Evidence is held as references to sources that the intended audience can actually open. Living sources such as repositories and Confluence pages are identified by a stable location and source revision or snapshot; their original documents need not be copied into Froodbase. A private local file path is not an acceptable shared citation. |
 | PR-12 | A report, an observation extracted from it and a summary derived from both count as **one** line of evidence, not three. Froodbase tracks derivation so that corroboration is not inflated. |
 | PR-13 | Derived knowledge (summaries, inferences, reflection output) is always marked as derived, cites its supporting records and is flagged for reconsideration when any supporting record changes. |
+| PR-14 | A later change to a living source does not silently rewrite a claim or its historical validity. When Froodbase detects that cited support has changed or can no longer be checked, it makes the claim's support status visible and flags it for review. |
 
 ### 6.3 Temporal correctness
 
@@ -126,15 +127,17 @@ These are the acceptance-level user stories. Each must be answerable with source
 | PR-43 | Contributions must contain only knowledge authorised for the intended audience, and must carry shareable evidence of their own when the originating report remains private. |
 | PR-44 | Two contributors editing the same record concurrently cannot overwrite each other; the later writer is told the record changed and must rebase. |
 | PR-45 | Retries of the same contribution do not create duplicates. |
+| PR-46 | An authorised reviewer can inspect every ingested claim in their knowledge areas at any time, including accepted claims, with its source, contributor, current state and complete decision history. They can flag a claim for reconsideration without silently changing its accepted state; mixed contributions can be reviewed claim by claim. |
 
-### 6.6 Reports remain local
+### 6.6 Explicit source and report ingestion
 
 | ID | Requirement |
 |---|---|
 | PR-50 | Generating an investigation report never uploads it, summarises it into Froodbase or embeds it automatically. |
 | PR-51 | Report ingestion is an explicit, user-initiated capability. It shows the user the destination knowledge area and the material being shared before anything is sent. |
-| PR-52 | Ingestion distinguishes evidence, hypotheses and proposed conclusions, and promotes nothing to accepted knowledge by itself. |
+| PR-52 | Ingestion breaks source material into evidenced records, distinguishing observations, hypotheses and proposed conclusions, and promotes nothing to accepted knowledge by itself. Retaining the source document is not required to retain the extracted records. |
 | PR-53 | A Froodbase contribution does not fulfil the obligation to deliver a report, and a report does not require a Froodbase contribution. |
+| PR-54 | An original report or document may be retained only when there is a stated benefit, such as later evidential review, and the contributor explicitly chooses that option after seeing its content, destination and access classification. A retained copy does not count as independent corroboration of claims extracted from it. |
 
 ### 6.7 Retrieval
 
@@ -145,6 +148,7 @@ These are the acceptance-level user stories. Each must be answerable with source
 | PR-62 | Results never include records the caller is not permitted to read, including through summaries, counts, embeddings or relationship edges. |
 | PR-63 | When evidence is insufficient or contradictory the answer says so instead of ranking the most plausible text first. |
 | PR-64 | The caller can request current, as-of, or historical-inclusive modes. |
+| PR-65 | A caller can report whether a retrieved record helped or was inapplicable, with a reason linked to the retrieved revision. This feedback informs evaluation and review, not acceptance, verification or corroboration by itself. |
 
 ### 6.8 Learning and reflection
 
@@ -154,6 +158,7 @@ These are the acceptance-level user stories. Each must be answerable with source
 | PR-71 | Reflection can identify gaps: entities with no owner, relationships with no evidence, lessons never verified in a given scope, assertions past their review date. |
 | PR-72 | Reflection respects access boundaries: it never combines evidence a given reader could not see into a summary that reader can. |
 | PR-73 | The split of reasoning between the calling agent and Froodbase is configurable per operation; Froodbase must function with model-free retrieval alone. |
+| PR-74 | Review of a derived claim distinguishes whether its cited evidence exists, is relevant and sufficiently supports the conclusion. A valid citation alone is not proof that the conclusion follows. |
 
 ### 6.9 Access and privacy
 
@@ -170,13 +175,13 @@ These are the acceptance-level user stories. Each must be answerable with source
 |---|---|
 | PR-90 | The shipped architecture references and system map can be imported with repository commit and path provenance, entering as sourced claims with appropriate (not inflated) verification state. |
 | PR-91 | Duplicate and overlapping records found during import are reconciled explicitly, with the reconciliation recorded. |
-| PR-92 | Existing investigation skills are rewritten to retrieve from and contribute to Froodbase while continuing to produce local reports. A Markdown-only fallback remains available while Froodbase is unavailable. |
+| PR-92 | Existing investigation skills are rewritten to retrieve from and contribute to Froodbase while continuing to produce local reports. Their versioned workflows demonstrate proposing, reviewing, reusing and correcting sourced knowledge, including an earlier false positive. A Markdown-only fallback remains available while Froodbase is unavailable. |
 
 ## 7. Product-level quality requirements
 
 | ID | Requirement |
 |---|---|
-| PR-100 | **Explainability.** For any answer, a user can see every record that contributed and why it was included or excluded (validity, scope, permission, supersession). |
+| PR-100 | **Explainability.** For any answer, a user can see every authorised candidate that contributed and why it was included or excluded (validity, scope, supersession). Explanations do not reveal the existence or count of records the caller cannot read. An authorised reviewer can trace a claim back to its evidence and see which derived records depend on it, subject to the same access rules. |
 | PR-101 | **Correctability.** Any accepted record can be corrected or superseded by an authorised role in one operation, and the correction is visible in subsequent retrieval within a bounded, published delay. |
 | PR-102 | **Availability of the fallback.** If Froodbase is unavailable, investigations continue using local and packaged knowledge; nothing in the workflow hard-fails. |
 | PR-103 | **Auditability.** Every read of restricted material and every write is attributable and retained for a defined period. |
@@ -194,6 +199,8 @@ Success is evaluated against a representative corpus, not vendor benchmarks. The
 - Identical service names in different environments.
 - Proposed versus approved versus deployed changes.
 - Duplicated summaries derived from one observation.
+- A real citation that is relevant but insufficient to support the stated deduction.
+- A living source that changed after a claim was extracted, and an accepted claim later flagged by a reviewer.
 - Questions Froodbase should refuse to answer for lack of evidence.
 
 Roughly 30 to 50 adjudicated questions are the target. Measures:
@@ -207,6 +214,8 @@ Roughly 30 to 50 adjudicated questions are the target. Measures:
 | Correction propagation | A correction is reflected in retrieval and flagged in derived records within the published delay |
 | Concurrent writes | No lost update across the conflict test set |
 | Access | No restricted record leaks in any test, including via reflection |
+| Reviewer oversight | An authorised reviewer can find any ingested claim in their area, inspect its source and decisions, and flag an accepted claim without changing its validity or acceptance |
+| Reuse outcome | At least one later investigation records why a retrieved lesson helped or did not apply, without treating feedback as corroboration |
 | Cost and latency | Recorded per query mode; no target until measured |
 
 No retrieval-quality or cost advantage has yet been demonstrated. The pilot exists to establish one.
@@ -215,7 +224,7 @@ No retrieval-quality or cost advantage has yet been demonstrated. The pilot exis
 
 | Phase | Included | Excluded |
 |---|---|---|
-| Pilot | One or two knowledge areas; entities, relationships, assertions, lessons; provenance; temporal model; contribution lifecycle; hybrid retrieval over PostgreSQL; explicit report ingestion; Entra roles; import of shipped architecture for the chosen areas; rewrite of one investigation agent | Reflection beyond simple consolidation; vector search unless the corpus shows full-text is insufficient; Hindsight or Graphiti as dependencies |
+| Pilot | One or two knowledge areas; entities, relationships, assertions, lessons; provenance; temporal model; contribution lifecycle and reviewer inspection of all claims; hybrid retrieval over PostgreSQL; explicit extraction from source documents with optional original-copy retention; recall outcome feedback; Entra roles; import of shipped architecture for the chosen areas; rewrite of one investigation agent | Reflection beyond simple consolidation; vector search unless the corpus shows full-text is insufficient; Hindsight, Graphiti or OB1 as dependencies |
 | Expansion | Remaining knowledge areas and agents; reflection with gap analysis; review dashboards | Separate graph or vector services unless justified |
 | Later | Optional Hindsight recall integration for support experience, if measured need | General wiki, report editing |
 

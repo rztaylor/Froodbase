@@ -4,7 +4,7 @@ A plain-language, technical explanation of the ideas behind Froodbase: relations
 
 Companion documents: the [product requirements](01-product-requirements.md) say what must be true; the [architecture design](03-architecture-design.md) says how it is built.
 
-Date: 13 October 2026. Revised 14 October 2026 to add the three parts of Froodbase and what was learned from Graphiti and Hindsight.
+Date: 13 October 2026. Revised 14 October 2026 for the three parts of Froodbase and the Graphiti/Hindsight findings; revised 16 October 2026 for living sources and human oversight.
 
 ## 1. The one-paragraph version
 
@@ -100,9 +100,11 @@ The analogy is a court again: an observation is eyewitness testimony, a decision
 - The **contributor**: which person, and if an agent did the work, which agent on that person's behalf.
 - The **time** it was recorded.
 
+Repositories, Confluence pages and other documents can keep changing. Froodbase normally stores the extracted claim and a precise reference to the version examined, rather than a copy of the whole document. A short supporting excerpt can help a reviewer understand an older claim after the live page changes. A changed page invites a fresh review; it does not tell Froodbase when the claim stopped being true.
+
 ### Why a private file path is not a citation
 
-If the only evidence for a claim is `/Users/alice/tickets/PX-1234/findings.md`, nobody else can check it. Froodbase rejects that kind of reference. A shareable contribution has to bring its own shareable evidence: the ticket link, the commit, the telemetry query. The local report stays on Alice's machine; only the checkable parts of its reasoning are offered to Froodbase, and only when Alice chooses.
+If the only evidence for a claim is `/Users/alice/tickets/PX-1234/findings.md`, nobody else can check it. Froodbase rejects that kind of reference. A shareable contribution has to bring its own shareable evidence: the ticket link, the commit, the telemetry query. The local report stays on Alice's machine by default; only the checkable parts of its reasoning are offered to Froodbase, and only when Alice chooses. She may separately choose to retain a copy of the report when there is a clear benefit.
 
 ### Evidence roots: not counting an echo three times
 
@@ -160,6 +162,8 @@ stateDiagram-v2
 ```
 
 A superseded record is not deleted. It is history. A current-state question skips it; a historical question still finds it, labelled as superseded and pointing at its replacement.
+
+A reviewer can also inspect the complete contribution history for their knowledge area whenever they wish, including accepted claims that are not currently in a review queue. They can flag one claim with a reason if its source, scope or conclusion looks doubtful. The flag brings it to review without silently undoing its earlier acceptance. This history shows *what knowledge entered and why*; the operational audit log separately records *who performed each action*.
 
 ### Why "generated" never means "accepted"
 
@@ -319,7 +323,7 @@ flowchart LR
     CS -- "proposed, within permissions" --> B
 ```
 
-The report is the user's. It can contain anything. Nothing in it reaches Froodbase unless the user explicitly asks to share it, and even then they see a preview of exactly which records would be created and where, with unshareable items (like local file paths) already removed. The preview is produced by froodbase-mcp on the user's own computer; the only things it asks the server are "do these names match known entities?" and "may this person write to this area?". Hypotheses go in as *proposed inferences*, never as accepted facts.
+The report is the user's. It can contain anything. Nothing in it reaches Froodbase unless the user explicitly asks to share it, and even then they see a preview of exactly which records would be created and where, with unshareable items (like local file paths) already removed. The preview is produced by froodbase-mcp on the user's own computer; the only things it asks the server are "do these names match known entities?" and "may this person write to this area?". The usual result is extracted records with evidence references. Keeping a copy of the original report is an extra choice, offered only when its benefit and access classification are clear. Hypotheses go in as *proposed inferences*, never as accepted facts.
 
 ### What a lesson looks like
 
