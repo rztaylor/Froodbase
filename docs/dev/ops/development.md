@@ -123,7 +123,37 @@ Without Claude Code you can drive the binary over stdin; the stream must stay op
   | FROODBASE_API_URL=http://127.0.0.1:8080/mcp FROODBASE_USERNAME=alice FROODBASE_PASSWORD=froodbase-dev bin/froodbase-mcp 2>/dev/null
 ```
 
+## Contributing knowledge and reading it back
+
+Three tools arrive with slice 1, available in Claude through `froodbase-mcp` and over HTTP at `/mcp`:
+
+| Tool | What it does |
+|---|---|
+| `contribute` | Writes one atomic change set to a knowledge area: entities, observations about them and the shareable evidence behind each observation. Every record is active at once with the support its distinct evidence roots give it; there is no approval step. Needs the contributor role in the area; a refusal is audited. |
+| `get_record` | Reads one record of any type by id with its kind, lifecycle state, support (score, configuration version, counts of roots, verifications and outcomes, threshold verdict), scope, validity, verification date and citations. |
+| `get_history` | Reads a record's content revisions (actor, time, rationale, snapshot) and, for a claim, its support events. |
+
+Knowledge areas are created at API start-up for every area key the users file grants (the sample file grants `demo`), so the local stack needs no admin step; the cloud move adds an admin tool. Reports, conversations and transcripts are never sent: an agent contributes individual findings, each citing an https source with a revision, and lists the returned ids in its report.
+
+Every `contribute` call carries an `idempotency_key`. Retrying with the same key and the same content returns the stored result (`replayed: true`) and writes nothing; the same key with different content is refused. Keys are per person. An observation must cite at least one piece of evidence (PR-43); evidence the area already holds is cited by id rather than recorded again, and recording the same source, revision and locator twice is refused with the message to cite the existing id.
+
+A minimal call from the terminal (bob is a contributor in `demo`):
+
+```bash
+curl -s -u bob:froodbase-dev -H 'Content-Type: application/json' -H 'Accept: application/json, text/event-stream' \
+  -d '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"contribute","arguments":{
+    "area":"demo","idempotency_key":"demo-1","rationale":"seen during INC-1",
+    "entities":[{"ref":"tool","type":"service","names":[{"name":"Import Tool"}]}],
+    "evidence":[{"ref":"ticket","source_kind":"ticket","source_uri":"https://dev.azure.com/org/p/_workitems/edit/418","source_revision":"2026-10-20","access_class":"area"}],
+    "observations":[{"ref":"obs","subject":"tool","body_markdown":"Callback failure reproduced on version 2.3","scope":{"environment":"prod","version_min":"2.3","version_max":"2.3"},"evidence":["ticket"]}]}}}' \
+  http://127.0.0.1:8080/mcp
+```
+
+The result lists each record with its id; pass an id to `get_record` or `get_history` the same way (`"arguments":{"id":"..."}`).
+
 ## Migrations
+
+Migration `00003_idempotency.sql` adds the per-caller idempotency keys of `contribute`.
 
 Schema migrations are SQL files under `internal/store/migrations`, named `NNNNN_description.sql` with strictly increasing versions, applied by goose in version order and forward-only: a file has an Up section and no Down section, and a mistake is corrected by a later migration. Before them, `froodbase-api migrate` applies River's own job queue schema (the `river_job` and related tables), which River versions itself, so a goose migration can grant the service role access to River's tables. Nothing is granted to `froodbase_app` by default: a migration that adds a table also grants what the role needs, otherwise the service fails closed with a permission error at startup.
 

@@ -97,7 +97,7 @@ func (b basicAuthTransport) RoundTrip(r *http.Request) (*http.Response, error) {
 func TestWhoamiOverHTTP(t *testing.T) {
 	log := slog.New(slog.NewTextHandler(io.Discard, nil))
 	s := New(log)
-	mcpServer := mcpserver.New("test", mcpserver.APIHandlers())
+	mcpServer := mcpserver.New("test", mcpserver.WhoamiHandlers())
 	mcpHandler := mcp.NewStreamableHTTPHandler(
 		func(*http.Request) *mcp.Server { return mcpServer },
 		&mcp.StreamableHTTPOptions{Stateless: true, JSONResponse: true},

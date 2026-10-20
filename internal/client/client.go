@@ -12,6 +12,7 @@ import (
 
 	"github.com/rztaylor/froodbase/internal/mcpserver"
 	"github.com/rztaylor/froodbase/internal/version"
+	"github.com/rztaylor/froodbase/internal/wire"
 )
 
 const callTimeout = 30 * time.Second
@@ -122,6 +123,27 @@ func classify(apiURL string, err error) error {
 func (c *Client) Whoami(ctx context.Context) (mcpserver.WhoamiOutput, error) {
 	var out mcpserver.WhoamiOutput
 	err := c.call(ctx, mcpserver.ToolWhoami, struct{}{}, &out)
+	return out, err
+}
+
+// Contribute forwards the contribute tool.
+func (c *Client) Contribute(ctx context.Context, in wire.ContributeInput) (wire.ContributeOutput, error) {
+	var out wire.ContributeOutput
+	err := c.call(ctx, mcpserver.ToolContribute, in, &out)
+	return out, err
+}
+
+// GetRecord forwards the get_record tool.
+func (c *Client) GetRecord(ctx context.Context, in wire.GetRecordInput) (wire.Record, error) {
+	var out wire.Record
+	err := c.call(ctx, mcpserver.ToolGetRecord, in, &out)
+	return out, err
+}
+
+// GetHistory forwards the get_history tool.
+func (c *Client) GetHistory(ctx context.Context, in wire.GetHistoryInput) (wire.HistoryOutput, error) {
+	var out wire.HistoryOutput
+	err := c.call(ctx, mcpserver.ToolGetHistory, in, &out)
 	return out, err
 }
 

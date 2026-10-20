@@ -168,6 +168,27 @@ func (p *Pool) AuditEvents(ctx context.Context, caller Caller, recordID domain.I
 	return out, err
 }
 
+// AuditEventsForArea lists an area's audit events, oldest first, for the
+// area's callers.
+func (p *Pool) AuditEventsForArea(ctx context.Context, caller Caller, areaID domain.ID) ([]AuditRecord, error) {
+	var out []AuditRecord
+	err := p.inTx(ctx, caller, func(ctx context.Context, _ pgx.Tx, q *gen.Queries) error {
+		rows, err := q.ListAuditEventsForArea(ctx, optional(string(areaID)))
+		if err != nil {
+			return err
+		}
+		out = make([]AuditRecord, 0, len(rows))
+		for _, r := range rows {
+			out = append(out, AuditRecord{
+				ID: r.ID, AreaID: deref(r.AreaID), EventType: r.EventType, ActorUserID: r.ActorUserID, ActorAgentID: deref(r.ActorAgentID),
+				RecordID: deref(r.RecordID), RecordType: deref(r.RecordType), RecordRevision: int(derefInt(r.RecordRevision)), Detail: json.RawMessage(r.Detail), At: r.At,
+			})
+		}
+		return nil
+	})
+	return out, err
+}
+
 // SupportEvents lists an assertion's support history, oldest first (TR-29).
 func (p *Pool) SupportEvents(ctx context.Context, caller Caller, claimID domain.ID) ([]domain.SupportEvent, error) {
 	var out []domain.SupportEvent

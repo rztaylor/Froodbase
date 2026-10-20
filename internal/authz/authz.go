@@ -2,6 +2,7 @@ package authz
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"sort"
 )
@@ -96,6 +97,10 @@ func (c *Context) Areas() []string {
 	sort.Strings(areas)
 	return areas
 }
+
+// ErrNoContext means a request reached a handler without an authorisation
+// context, which means the transport did not authenticate it.
+var ErrNoContext = errors.New("authz: no authorisation context on the request")
 
 type ctxKey struct{}
 

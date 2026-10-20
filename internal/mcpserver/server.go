@@ -8,6 +8,7 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
 	"github.com/rztaylor/froodbase/internal/authz"
+	"github.com/rztaylor/froodbase/internal/wire"
 )
 
 // ServerName is the MCP implementation name reported to clients.
@@ -16,7 +17,10 @@ const ServerName = "froodbase"
 // Tool names. The set is finite by design (TR-12); add a constant here when a
 // slice adds a tool.
 const (
-	ToolWhoami = "whoami"
+	ToolWhoami     = "whoami"
+	ToolContribute = "contribute"
+	ToolGetRecord  = "get_record"
+	ToolGetHistory = "get_history"
 )
 
 // WhoamiOutput is the whoami tool's structured result.
@@ -68,7 +72,10 @@ func (e *UnavailableError) Result() Unavailable {
 // Handlers supplies the behaviour behind each tool. A nil handler leaves the
 // tool out of the server.
 type Handlers struct {
-	Whoami func(ctx context.Context) (WhoamiOutput, error)
+	Whoami     func(ctx context.Context) (WhoamiOutput, error)
+	Contribute func(ctx context.Context, in wire.ContributeInput) (wire.ContributeOutput, error)
+	GetRecord  func(ctx context.Context, in wire.GetRecordInput) (wire.Record, error)
+	GetHistory func(ctx context.Context, in wire.GetHistoryInput) (wire.HistoryOutput, error)
 }
 
 // New builds an MCP server exposing the tools whose handlers are set.
@@ -80,6 +87,29 @@ func New(version string, h Handlers) *mcp.Server {
 			Description: "Report who Froodbase thinks the caller is and which knowledge areas and roles they hold.",
 			Annotations: &mcp.ToolAnnotations{ReadOnlyHint: true},
 		}, wrap(func(ctx context.Context, _ struct{}) (WhoamiOutput, error) { return h.Whoami(ctx) }))
+	}
+	if h.Contribute != nil {
+		mcp.AddTool(s, &mcp.Tool{
+			Name: ToolContribute,
+			Description: "Record findings in a knowledge area as one atomic change set: entities, observations about them and the shareable evidence (https sources with a revision) that supports each observation. " +
+				"Every record is active at once with the support its distinct evidence roots give it; there is no approval step. Reports, conversations and transcripts are never sent: contribute individual findings with their own citations. " +
+				"Pass a fresh idempotency_key per change set; retrying with the same key returns the same result without writing again. The result lists every record written with its id, kind, lifecycle state and support: list those ids in your report.",
+			Annotations: &mcp.ToolAnnotations{IdempotentHint: true},
+		}, wrap(h.Contribute))
+	}
+	if h.GetRecord != nil {
+		mcp.AddTool(s, &mcp.Tool{
+			Name:        ToolGetRecord,
+			Description: "Read one record (an entity, an observation or an evidence record) by id with its kind, lifecycle state, support, scope, validity, verification date and citations. Records outside your knowledge areas are reported as not found.",
+			Annotations: &mcp.ToolAnnotations{ReadOnlyHint: true},
+		}, wrap(h.GetRecord))
+	}
+	if h.GetHistory != nil {
+		mcp.AddTool(s, &mcp.Tool{
+			Name:        ToolGetHistory,
+			Description: "Read a record's append-only history: every content revision with its actor, time and rationale, and for a claim its support events (distinct roots added, verifications, outcomes, challenges).",
+			Annotations: &mcp.ToolAnnotations{ReadOnlyHint: true},
+		}, wrap(h.GetHistory))
 	}
 	return s
 }
@@ -101,18 +131,18 @@ func wrap[In, Out any](h func(ctx context.Context, in In) (Out, error)) mcp.Tool
 	}
 }
 
-// ErrNoCaller is returned when a tool runs without an authorisation context,
-// which means the transport did not authenticate the request.
-var ErrNoCaller = errors.New("mcpserver: no authorisation context on the request")
+// ErrNoCaller is returned when a tool runs without an authorisation context.
+var ErrNoCaller = authz.ErrNoContext
 
-// APIHandlers returns the handlers froodbase-api serves: they read the
-// authorisation context the HTTP middleware attached.
-func APIHandlers() Handlers {
+// WhoamiHandlers returns handlers for whoami alone, reading the
+// authorisation context the HTTP middleware attached; froodbase-api adds the
+// other tools through internal/apihandlers.
+func WhoamiHandlers() Handlers {
 	return Handlers{
 		Whoami: func(ctx context.Context) (WhoamiOutput, error) {
 			ac := authz.FromContext(ctx)
 			if ac == nil {
-				return WhoamiOutput{}, ErrNoCaller
+				return WhoamiOutput{}, authz.ErrNoContext
 			}
 			return WhoamiFromContext(ac), nil
 		},

@@ -73,6 +73,16 @@ jobs:
           curl --fail -s -u alice:froodbase-dev -H 'Content-Type: application/json' -H 'Accept: application/json, text/event-stream' \
             -d '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"whoami","arguments":{}}}' http://127.0.0.1:8080/mcp \
             | grep -q '"reviewer"'
+      - name: contribute writes a change set and get_record reads it back
+        run: |
+          out=$(curl --fail -s -u bob:froodbase-dev -H 'Content-Type: application/json' -H 'Accept: application/json, text/event-stream' \
+            -d '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"contribute","arguments":{"area":"demo","idempotency_key":"ci-1","entities":[{"ref":"tool","type":"service","names":[{"name":"Import Tool"}]}],"evidence":[{"ref":"t","source_kind":"ticket","source_uri":"https://dev.azure.com/org/p/_workitems/edit/418","source_revision":"r1","access_class":"area"}],"observations":[{"ref":"obs","subject":"tool","body_markdown":"Callback failure reproduced on 2.3","evidence":["t"]}]}}}' \
+            http://127.0.0.1:8080/mcp)
+          echo "$out" | grep -q '"lifecycle_state":"active"'
+          id=$(echo "$out" | python3 -c 'import sys,json; r=json.load(sys.stdin)["result"]["structuredContent"]; print(next(x["id"] for x in r["records"] if x["ref"]=="obs"))')
+          curl --fail -s -u carol:froodbase-dev -H 'Content-Type: application/json' -H 'Accept: application/json, text/event-stream' \
+            -d "{\"jsonrpc\":\"2.0\",\"id\":2,\"method\":\"tools/call\",\"params\":{\"name\":\"get_record\",\"arguments\":{\"id\":\"$id\"}}}" http://127.0.0.1:8080/mcp \
+            | grep -q '"kind":"observation"'
       - name: froodbase-mcp forwards whoami over stdio
         run: |
           make build

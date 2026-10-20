@@ -41,14 +41,36 @@ type Contribution struct {
 	Evidence      []domain.Evidence
 	ClaimEvidence map[domain.ID][]domain.ID
 	Rationale     string
+	// Idempotency, when set, stores the result under the caller's key in the
+	// same transaction (TR-15).
+	Idempotency *Idempotency
+	// Refs maps record ids to the caller's own names for them, echoed in the
+	// result so a replayed result still carries them.
+	Refs map[domain.ID]string
 }
 
-// ContributionResult reports what the write produced.
+// ContributionResult reports what the write produced. It is what an
+// idempotent retry returns, so it names every record written.
 type ContributionResult struct {
+	// ContributionID is the provenance episode written.
+	ContributionID domain.ID `json:"contribution_id"`
 	// Scores is the projected support score of every assertion written.
-	Scores map[domain.ID]float64
+	Scores map[domain.ID]float64 `json:"scores"`
+	// Roots is the number of distinct evidence roots behind each assertion.
+	Roots map[domain.ID]int `json:"roots"`
 	// ConfigVersion is the support configuration the scores were projected under.
-	ConfigVersion string
+	ConfigVersion string `json:"config_version"`
+	// Written lists every record in the order written.
+	Written []WrittenRecord `json:"written"`
+	// Replayed is true when the result came from a stored idempotency key.
+	Replayed bool `json:"-"`
+}
+
+// WrittenRecord is one record a contribution wrote.
+type WrittenRecord struct {
+	Ref        string    `json:"ref,omitempty"`
+	ID         domain.ID `json:"id"`
+	RecordType string    `json:"record_type"`
 }
 
 // CreateArea creates a knowledge area and audits it. The caller's areas for
@@ -79,7 +101,7 @@ func (p *Pool) Contribute(ctx context.Context, caller Caller, c Contribution) (*
 	if err := c.validate(caller); err != nil {
 		return nil, err
 	}
-	res := &ContributionResult{Scores: make(map[domain.ID]float64, len(c.Assertions))}
+	res := &ContributionResult{ContributionID: c.Contribution.ID, Scores: make(map[domain.ID]float64, len(c.Assertions)), Roots: make(map[domain.ID]int, len(c.Assertions))}
 	err := p.inTx(ctx, caller, func(ctx context.Context, tx pgx.Tx, q *gen.Queries) error {
 		now := p.now().UTC()
 		area := string(c.Contribution.AreaID)
@@ -101,6 +123,7 @@ func (p *Pool) Contribute(ctx context.Context, caller Caller, c Contribution) (*
 			if err := p.insertEntity(ctx, tx, q, caller, e, c.Rationale, now); err != nil {
 				return err
 			}
+			res.Written = append(res.Written, WrittenRecord{Ref: c.Refs[e.ID()], ID: e.ID(), RecordType: RecordEntity})
 		}
 		byID := make(map[domain.ID]domain.Evidence, len(c.Evidence))
 		for _, ev := range c.Evidence {
@@ -108,6 +131,7 @@ func (p *Pool) Contribute(ctx context.Context, caller Caller, c Contribution) (*
 				return err
 			}
 			byID[ev.ID] = ev
+			res.Written = append(res.Written, WrittenRecord{Ref: c.Refs[ev.ID], ID: ev.ID, RecordType: RecordEvidence})
 		}
 		for _, a := range c.Assertions {
 			evidence, err := p.resolveEvidence(ctx, q, byID, c.ClaimEvidence[a.ID])
@@ -122,6 +146,11 @@ func (p *Pool) Contribute(ctx context.Context, caller Caller, c Contribution) (*
 				return err
 			}
 			res.Scores[a.ID] = score
+			res.Roots[a.ID] = len(domain.DistinctRoots(evidence))
+			res.Written = append(res.Written, WrittenRecord{Ref: c.Refs[a.ID], ID: a.ID, RecordType: RecordAssertion})
+		}
+		if c.Idempotency != nil {
+			return storeIdempotent(ctx, q, caller, *c.Idempotency, res, now)
 		}
 		return nil
 	})
@@ -363,6 +392,15 @@ func (p *Pool) recordChange(ctx context.Context, tx pgx.Tx, q *gen.Queries, call
 	}
 	_, err := p.jobs.InsertTx(ctx, tx, jobs.IndexRecordArgs{RecordID: c.recordID, RecordType: c.recordType, AreaID: c.areaID, Revision: c.revision})
 	return err
+}
+
+// RecordAudit appends an operational audit event outside any record write,
+// for example a refused contribution (TR-74). areaID may be empty for events
+// outside any area.
+func (p *Pool) RecordAudit(ctx context.Context, caller Caller, areaID, eventType string, detail map[string]any) error {
+	return p.inTx(ctx, caller, func(ctx context.Context, _ pgx.Tx, q *gen.Queries) error {
+		return p.audit(ctx, q, caller, areaID, eventType, "", "", 0, detail, p.now().UTC())
+	})
 }
 
 func (p *Pool) audit(ctx context.Context, q *gen.Queries, caller Caller, areaID, eventType, recordID, recordType string, revision int, detail map[string]any, now time.Time) error {

@@ -28,7 +28,7 @@ func connect(ctx context.Context, t *testing.T, s *mcp.Server) *mcp.ClientSessio
 func TestWhoamiListedAndCalled(t *testing.T) {
 	ac := &authz.Context{UserID: "alice", DisplayName: "Alice", Grants: map[string][]authz.Role{"support": {authz.RoleReviewer}}}
 	ctx := authz.WithContext(context.Background(), ac)
-	cs := connect(ctx, t, New("test", APIHandlers()))
+	cs := connect(ctx, t, New("test", WhoamiHandlers()))
 
 	tools, err := cs.ListTools(ctx, nil)
 	if err != nil {
@@ -57,7 +57,7 @@ func TestWhoamiListedAndCalled(t *testing.T) {
 
 func TestWhoamiWithoutCallerIsToolError(t *testing.T) {
 	ctx := context.Background()
-	cs := connect(ctx, t, New("test", APIHandlers()))
+	cs := connect(ctx, t, New("test", WhoamiHandlers()))
 	res, err := cs.CallTool(ctx, &mcp.CallToolParams{Name: ToolWhoami})
 	if err != nil {
 		t.Fatal(err)

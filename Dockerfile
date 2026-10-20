@@ -1,4 +1,3 @@
-# syntax=docker/dockerfile:1
 # Builds one server binary (froodbase-api or froodbase-dreamer) into a small
 # Alpine image. BINARY selects the cmd/ package; VERSION, COMMIT and DATE are
 # the same link-time values the Makefile injects (see LDFLAGS there).

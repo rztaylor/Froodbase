@@ -37,7 +37,7 @@ func api(t *testing.T) (*httptest.Server, *string) {
 	var seen string
 	s := httpserver.New(slog.New(slog.NewTextHandler(io.Discard, nil)))
 	h := mcp.NewStreamableHTTPHandler(func(*http.Request) *mcp.Server {
-		return mcpserver.New("test", mcpserver.APIHandlers())
+		return mcpserver.New("test", mcpserver.WhoamiHandlers())
 	}, &mcp.StreamableHTTPOptions{Stateless: true, JSONResponse: true})
 	record := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		seen = r.Header.Get(version.ClientHeader)
