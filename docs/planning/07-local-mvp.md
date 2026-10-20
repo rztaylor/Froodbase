@@ -2,11 +2,13 @@
 
 Status: approved scope (board decision, 14 October 2026). Narrows the [implementation plan](04-implementation-plan.md) to what is built first and where it runs. The [product requirements](01-product-requirements.md), [technical requirements](02-technical-requirements.md) and [architecture design](03-architecture-design.md) remain the reference; this document records what the MVP takes from them, what it replaces for local running, and what it defers.
 
-Date: 14 October 2026. Revised 16 October 2026 to clarify source provenance and reviewer inspection, and again the same day for earned support, the smaller lifecycle and no report ingestion.
+Date: 14 October 2026. Revised 16 October 2026 to clarify source provenance and reviewer inspection, and again the same day for earned support, the smaller lifecycle and no report ingestion. Revised 20 October 2026 to add slice 1b (deductions and broader evidence) and slice 3b (taking over from the architecture references).
 
 ## 1. Purpose
 
 Build the "brain" of Froodbase (knowledge model, two clocks, lifecycle and disputes, hybrid retrieval, dreamer jobs) and run it entirely on one computer, so its behaviour can be judged before any cloud infrastructure is paid for or operated. The MVP is additive to the implementation plan, not a replacement: when the exit gate in section 7 passes, the deferred work in section 8 moves the same code to Azure.
+
+The brain is a shared memory for people and agents, not only a store of verified facts. An agent records what it observes and what it deduces; a deduction is a first-class record, labelled as an inference, linked to what it was deduced from and carrying the support that evidence and use earn it. The rules exist so that a deduction can be traced and weighed, not so that it must be proven before it is shared. The MVP also has to be able to take over from the Markdown architecture references the investigation agents read today, which brings the phase 3 importer and the phase 6 knowledge views forward (slice 3b).
 
 Gate 0 of the implementation plan (build or buy) is taken as **build** by this decision. The organisational parts of phase 0 (named curators, pilot areas, operating ownership) are not needed to run locally and are picked up when the cloud move starts.
 
@@ -74,11 +76,14 @@ Each slice is a workstream on the board. Every slice advances all three binaries
 ```mermaid
 flowchart LR
     S0["0 Walking skeleton"] --> S1["1 Entities and observations"]
-    S1 --> S2["2 Two clocks"]
-    S1 --> S3["3 Relationships and lessons"]
+    S1 --> S1b["1b Deductions and broader evidence"]
+    S1b --> S2["2 Two clocks"]
+    S1b --> S3["3 Relationships and lessons"]
+    S3 --> S3b["3b Take over from the architecture references"]
     S2 --> S4["4 Lifecycle and disputes"]
     S3 --> S4
     S4 --> S5["5 Evaluation corpus"]
+    S3b --> S5
 ```
 
 ### Slice 0: walking skeleton
@@ -101,6 +106,18 @@ Exit: `make up` starts the stack from a clean checkout; Claude calls `whoami` th
 
 Exit: from Claude, contribute an entity with an observation and shareable evidence, search for it by name and by a word in its body, read its history; a user without the area sees nothing and an audit event records the denied read; the index job runs within seconds of the write.
 
+### Slice 1b: deductions and broader evidence
+
+Added after slice 1, when using it showed a strict fact store rather than a shared memory: an agent could not record a deduction, only facts with web citations were accepted, and a person had to supply every field.
+
+| Binary | Delivers |
+|---|---|
+| `froodbase-api` | `contribute` accepts inferences and decisions as well as observations, each citing evidence, naming the records it was derived from, or both; derivation links stored with row-level security; a deduction inherits one root per distinct root of its sources. Evidence kinds for a fact observed by running a command against a resource (resource identity, the command with secrets removed, the time it ran) and for a statement by a named person (only the caller, weighted lower by the area's support configuration); the evidence rule becomes "checkable by the intended audience" (PR-11). Looser input: evidence kind inferred from well-known URLs, access class defaulted to the area, refs generated |
+| `froodbase-mcp` | The same tools; a repository skill teaches Claude to turn a plain-language finding, a command it ran or a document it read into contributions, searching before creating, citing existing records, and listing back anything with nothing checkable behind it |
+| `froodbase-dreamer` | Reconsideration job, strengthening half: when a record gains a new root, every deduction derived from it gains that root too |
+
+Exit: in Claude, a person describes a finding in plain words and Claude contributes it without asking for fields; an agent records an observation from a ticket and one from an `az` command, then an inference derived from both, which is active, labelled inference, below the inference threshold and shown with its sources; a person adds a statement of their own; a new independent root on one observation strengthens the inference through the dreamer; Claude records the evidenced findings of a committed sample document, citing its sections; reading back shows every record's sources.
+
 ### Slice 2: two clocks
 
 | Binary | Delivers |
@@ -121,13 +138,25 @@ Exit: the pitch's worked example (failure on 2.3, fix merged, 2.4 deployed and v
 
 Exit: "what depends on X" is answered from relationships without text matching; a lesson is retrieved by symptom; an entity created without an owner appears in the due-for-review list after the next scan.
 
+### Slice 3b: take over from the architecture references
+
+The investigation agents read Markdown references packaged with the toolkit (the system-map-discovery architecture references). Froodbase can replace them only when the same knowledge is imported with honest provenance and agents can read it back as readable pages.
+
+| Binary | Delivers |
+|---|---|
+| `froodbase-api` | Importer for the architecture references at a pinned commit of the toolkit repository: entities, relationships, observations and deductions with file and section provenance, the documents' own observed, inferred and unverified labels mapped onto kind and support, nothing upgraded; a reconciliation report of overlapping records; `list_views` and `get_view` tools serving per-area pages filtered by permission |
+| `froodbase-mcp` | The view tools |
+| `froodbase-dreamer` | Knowledge-view build: a page per system with its relationships, observations and labelled deductions, every statement linking its records, rebuilt as deltas with a watermark and a stale marker |
+
+Exit: the toolkit's architecture references are imported and their pages regenerated; a coverage report shows, file by file, what each page reproduces, what it holds with less certainty, and what could not be imported and why; no claim the originals mark as inferred or unverified appears as observed; an agent reads a system's page from Claude.
+
 ### Slice 4: lifecycle and disputes
 
 | Binary | Delivers |
 |---|---|
-| `froodbase-api` | Lifecycle state machine (active, disputed, superseded, retracted) with role checks; `review_claim` (dispute, resolve, supersede, retract, verify, flag); `report_outcome`; an area-scoped way for reviewers to inspect every contribution and individual claim in any state; conflict classifier on write producing change-over-time, scope, correction or dispute outcomes; support events and score projection under a versioned area configuration with per-kind thresholds; base-revision conflicts; derivation links; `explain_answer`; the `insufficient_evidence` flag; pagination with cursors |
+| `froodbase-api` | Lifecycle state machine (active, disputed, superseded, retracted) with role checks; `review_claim` (dispute, resolve, supersede, retract, verify, flag); `report_outcome`; an area-scoped way for reviewers to inspect every contribution and individual claim in any state; conflict classifier on write producing change-over-time, scope, correction or dispute outcomes; versioned area support configuration with per-kind thresholds; base-revision conflicts; `explain_answer`; the `insufficient_evidence` flag; pagination with cursors (derivation links arrive in slice 1b) |
 | `froodbase-mcp` | The same tools |
-| `froodbase-dreamer` | Reconsideration job walking derivation links, recomputing dependants' support and flagging those below threshold `needs_reconsideration`; quiet-use credits in the review sweep |
+| `froodbase-dreamer` | Reconsideration job (started in slice 1b) extended to the weakening events: supersession, retraction, contradiction and source change reach every dependant, and those below threshold are flagged `needs_reconsideration`; quiet-use credits in the review sweep |
 
 Exit: two concurrent writers on one record, the second is rejected with the current revision; overlapping incompatible observations produce a dispute and both stay retrievable; a supersession removes the old record from current search immediately and lowers the support of its derived inference; an independent root and an evidenced successful outcome carry an inference across its threshold while a duplicate echo and a retrieval change nothing; a failed outcome lowers it; a reviewer can inspect and flag any claim without changing its state; `explain_answer` lists every candidate and the rule that kept or dropped it.
 
@@ -150,11 +179,12 @@ Added when a slice reaches them, with licences recorded in `docs/dev/ops/third-p
 The MVP is done when all slice exits hold and:
 
 - The evaluation harness passes with no current-state answer citing a superseded record, no restricted record leaked, no lost update and no false merge across environment scope.
-- A newcomer can start the stack and make their first contribution from Claude by following `docs/dev/ops/development.md` alone.
+- A newcomer can start the stack and make their first contribution from Claude by following `docs/dev/ops/development.md` alone, describing the finding in plain words.
+- Froodbase can take over from the system-map-discovery architecture references: the slice 3b coverage report shows the regenerated pages reproduce what the files said, with every difference explained, and an investigation agent can answer its usual architecture questions from Froodbase instead of the files.
 - The authorisation context interface has no basic-auth type in its signature, so the Entra implementation is an addition.
 
 Passing the gate reopens the implementation plan at phase 1 for the cloud move, with the brain already built.
 
 ## 8. Out of scope for the MVP
 
-Deferred work is tracked as low-priority backlog tickets on the board, not here. In summary: Entra sign-in and Streamable HTTP OAuth, Terraform and Container Apps, the vector channel and embeddings, reflection and consolidation, knowledge views, redaction, signed binaries and install scripts, and the importer for the shipped architecture references.
+Deferred work is tracked as low-priority backlog tickets on the board, not here. In summary: Entra sign-in and Streamable HTTP OAuth, Terraform and Container Apps, the vector channel and embeddings, reflection and consolidation, redaction, signed binaries and install scripts, and importing knowledge beyond the system-map-discovery architecture references.

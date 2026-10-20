@@ -16,6 +16,7 @@ All notable changes to Froodbase are recorded here. The format follows Keep a Ch
 
 ### Changed
 
+- Planning (docs only): the local MVP gains slice 1b, so agents can record deductions linked to their sources, cite facts from commands and statements by named people, and contribute from plain language or a document, and slice 3b, which imports the system-map-discovery architecture references and regenerates them as readable views so Froodbase can take over from those files.
 - Evidence and contributions belong to a knowledge area, and evidence can name a locator (line range or section) inside the cited revision.
 
 - Evidence can no longer cite a report revision held by Froodbase: the `report_revision` source kind and `froodbase://` URIs are removed from the knowledge model, leaving repository, ticket, telemetry query and document sources, each naming its revision.
