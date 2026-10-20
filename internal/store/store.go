@@ -26,8 +26,10 @@ const openTimeout = 10 * time.Second
 
 // Pool is the process-wide PostgreSQL connection pool.
 type Pool struct {
-	pool *pgxpool.Pool
-	jobs *JobInserter
+	pool   *pgxpool.Pool
+	jobs   *JobInserter
+	now    func() time.Time
+	failAt func(step string) error // test hook, nil in production
 }
 
 // Open connects to PostgreSQL with the given URL and verifies the connection
@@ -48,7 +50,7 @@ func Open(ctx context.Context, databaseURL string) (*Pool, error) {
 		pool.Close()
 		return nil, fmt.Errorf("store: connecting to PostgreSQL: %w", redact(err))
 	}
-	p := &Pool{pool: pool}
+	p := &Pool{pool: pool, now: time.Now}
 	jobs, err := newJobInserter(p)
 	if err != nil {
 		pool.Close()

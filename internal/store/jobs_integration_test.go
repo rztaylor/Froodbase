@@ -14,7 +14,7 @@ import (
 func TestJobsEnqueueTransactionally(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
 	defer cancel()
-	pool := storetest.Pool(t)
+	pool := storetest.Open(t).App // the service role, as in production
 	minute := time.Date(2026, 1, 2, 3, 4, 0, 0, time.UTC)
 	count := func() int {
 		var n int
