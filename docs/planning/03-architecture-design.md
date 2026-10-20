@@ -284,6 +284,13 @@ erDiagram
         timestamptz observed_at
         timestamptz recorded_at
     }
+    DERIVATION {
+        uuid derived_id FK
+        uuid source_id FK
+        uuid area_id FK
+        text rationale
+        timestamptz recorded_at
+    }
     SUPPORT_EVENT {
         uuid id PK
         uuid record_id
@@ -374,6 +381,7 @@ Notes on the model:
 
 - **Scope** is a JSONB object with fixed keys (`environment`, `region`, `version_min`, `version_max`, `cluster`, `tenant`). A missing key means unspecified. Overlap is computed by a SQL function so the conflict classifier and the mode filter use the same definition (TR-26).
 - **Evidence roots.** `root_evidence_id` points at the original observation when an evidence record is itself a restatement (for example a report excerpt quoting a telemetry query). Corroboration counts distinct roots (TR-25).
+- **Derivations.** A decision or inference may name the assertions it was derived from; each link is an append-only `derivation` row with both ends in the same area. The deduction starts with one `root_added` event per distinct root of its sources' events and its own citations, so roots are inherited transitively and a root shared by several sources counts once (PR-12, PR-13). An observation is never derived.
 - **Three independent axes.** Epistemic kind (`observation`, `decision`, `inference`) says what a statement is and never changes; `support_score` says how well evidence and experience back it; lifecycle says whether it is active, disputed, superseded or retracted. The score is a projection of the append-only `support_event` rows under the area's `support_config` version, so it can be recomputed and explained. A well-supported inference stays an inference. Updating support never guesses a validity date or erases an earlier event (TR-29).
 - **Living-source extraction.** A repository commit and path, Confluence page ID and version, or equivalent stable source reference identifies the material examined. `source_locator` can name a line range or section; a short excerpt may preserve the basis for a historical claim when the live source changes. Importer and extractor identity/version and optional input digest belong to contribution or evidence provenance. A content fingerprint suggests duplicate claims but never merges independent evidence roots. Original-author attribution is separate from the authenticated contributor and may remain unknown (TR-24, TR-65). No document body is ever stored.
 - **Revisions** hold a full JSONB snapshot of the record at each change. This makes `get_history` and `get_as_of` by recording time trivial, and keeps the live tables narrow.
