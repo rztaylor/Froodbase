@@ -62,8 +62,8 @@ func (p *Pool) QueueDepth(ctx context.Context) (int, error) {
 }
 
 // migrateRiver applies River's own schema (the river_job and related tables)
-// after the goose migrations. River versions its schema itself; the migration
-// is forward-only here like everything else.
+// before the goose migrations. River versions its schema itself; the
+// migration is forward-only here like everything else.
 func (p *Pool) migrateRiver(ctx context.Context) (int, error) {
 	m, err := rivermigrate.New(riverpgxv5.New(p.pool), nil)
 	if err != nil {

@@ -21,7 +21,17 @@ Integration tests need Docker and are kept out of that gate:
 make test-integration
 ```
 
-They are tagged `integration` and get their database from `internal/store/storetest`, which starts one `pgvector/pgvector:pg16` container per test binary, migrates a template database once, and clones it for each test (`storetest.Pool`) or gives an empty one (`storetest.EmptyPool`). Nothing is shared between tests and nothing touches the Compose stack. CI runs them in the `integration` job on every pull request.
+They are tagged `integration` and get their database from `internal/store/storetest`, which starts one `pgvector/pgvector:pg16` container per test binary, migrates a template database once, and clones it for each test (`storetest.Open`, giving an `Admin` pool as the owner and an `App` pool as the service role `froodbase_app`; `storetest.Pool` is the admin pool alone) or gives an empty one (`storetest.EmptyPool`). Row-level security applies to `App` and not to `Admin`, so a test of what a caller can see uses `App`. Nothing is shared between tests and nothing touches the Compose stack. CI runs them in the `integration` job on every pull request.
+
+## Generated queries: sqlc
+
+Hand-written SQL lives in `internal/store/queries/*.sql`; sqlc types it against the migrations and generates `internal/store/gen` (committed, exempt from the `doc.go` rule). After changing a query or a migration:
+
+```bash
+make sqlc
+```
+
+sqlc v1.30.0 runs through `go run` (pure Go, nothing to install); `make sqlc-check` fails when the committed output is stale, and CI runs it. Configuration is `internal/store/sqlc.yaml`: `uuid` columns are Go strings, `timestamptz` are `time.Time` (pointers when nullable).
 
 ## Running the local stack with Compose
 
@@ -34,6 +44,12 @@ They are tagged `integration` and get their database from `internal/store/storet
 | `make logs` | Follows the logs of all three services |
 | `make migrate` | Applies pending schema migrations to the Compose database by rerunning the `migrate` service (`froodbase-api migrate`); safe to repeat |
 | `make migrate-status` | Lists every migration with its version and whether it is applied, plus River's job queue schema version |
+
+`make up` also generates `FROODBASE_APP_DB_PASSWORD` into `.env`: the password of `froodbase_app`, the service role the api and dreamer connect as. `local/postgres-init/10-app-role.sh` creates that role when the PostgreSQL volume is first initialised. A volume created before it existed gets the role from migration 2 without a login; either start again with `docker compose down -v` (the data is lost) or give it the login from `.env` once:
+
+```bash
+printf "ALTER ROLE froodbase_app LOGIN PASSWORD :'p';\n" | docker compose exec -T postgres psql -U froodbase -d froodbase -v p="$(grep '^FROODBASE_APP_DB_PASSWORD=' .env | cut -d= -f2-)"
+``` The owner role `froodbase` is used only by the `migrate` service; `froodbase_app` owns nothing, so PostgreSQL's row-level security applies to every record it reads or writes and it cannot disable the policies (see "Records" below).
 
 `make up` also creates `local/users.json` from `local/users.example.json` on first run: three sample users (alice, reviewer; bob, contributor; carol, reader) in the `demo` area, all with the password `froodbase-dev`. The file is ignored by git.
 
@@ -109,11 +125,26 @@ Without Claude Code you can drive the binary over stdin; the stream must stay op
 
 ## Migrations
 
-Schema migrations are SQL files under `internal/store/migrations`, named `NNNNN_description.sql` with strictly increasing versions, applied by goose in version order and forward-only: a file has an Up section and no Down section, and a mistake is corrected by a later migration. After them, `froodbase-api migrate` applies River's own job queue schema (the `river_job` and related tables), which River versions itself. The migrations are embedded in `froodbase-api`, so `froodbase-api migrate` applies them wherever the binary runs and `froodbase-api migrate --status` lists them. Locally the Compose `migrate` service runs them before the api and dreamer start, and `make migrate` reruns them after you add a migration; in the cloud only the deployment pipeline runs them (`docs/planning/02-technical-requirements.md`, TR-92). Both server binaries open the database pool at startup and exit with a clear error if PostgreSQL is unreachable, so start the stack before running them from `bin/`.
+Schema migrations are SQL files under `internal/store/migrations`, named `NNNNN_description.sql` with strictly increasing versions, applied by goose in version order and forward-only: a file has an Up section and no Down section, and a mistake is corrected by a later migration. Before them, `froodbase-api migrate` applies River's own job queue schema (the `river_job` and related tables), which River versions itself, so a goose migration can grant the service role access to River's tables. Nothing is granted to `froodbase_app` by default: a migration that adds a table also grants what the role needs, otherwise the service fails closed with a permission error at startup.
+
+| Version | File | Creates |
+|---|---|---|
+| 1 | `00001_extensions.sql` | The `vector`, `pg_trgm` and `btree_gist` extensions |
+| 2 | `00002_records.sql` | The slice 1 record tables, the service role `froodbase_app` and its grants, row-level security on every table, the seeded service default support configuration | The migrations are embedded in `froodbase-api`, so `froodbase-api migrate` applies them wherever the binary runs and `froodbase-api migrate --status` lists them. Locally the Compose `migrate` service runs them before the api and dreamer start, and `make migrate` reruns them after you add a migration; in the cloud only the deployment pipeline runs them (`docs/planning/02-technical-requirements.md`, TR-92). Both server binaries open the database pool at startup and exit with a clear error if PostgreSQL is unreachable, so start the stack before running them from `bin/`.
+
+## Records: history, audit and per-area access control
+
+Migration `00002_records.sql` creates the slice 1 tables (`knowledge_area`, `entity`, `entity_name`, `assertion`, `evidence`, `claim_evidence`, `contribution`, `contribution_claims`, `revision`, `audit_event`, `support_event`, `support_config`), the service role `froodbase_app` (without a login when it does not exist yet; Compose and `storetest` give it one) and its grants, and enables row-level security on every one of them. The policies compare each row's `area_id` with `app.caller_areas`, a comma-separated list of area ids the service sets per transaction with `set_config('app.caller_areas', ..., true)` from the caller's grants (`store.Caller`); unset means no rows. `revision`, `audit_event` and `support_event` have insert and select policies only and no update or delete grant, so history is append-only at both levels. `support_config` holds the service default (`area_id` null, version `service-1`, the values of `domain.DefaultSupportConfig`) and each area's own versions.
+
+Every write goes through `store.Pool`'s writer, which in one transaction inserts the records, a full JSON snapshot per record revision, an audit event per write, one `root_added` support event per distinct evidence root with the projected score, and the `index_record` job for the dreamer; a failure anywhere rolls all of it back. Record ids are UUIDs from `store.NewID`. Inspect what a write left behind from the Compose stack:
+
+```bash
+docker compose exec -T postgres psql -U froodbase -d froodbase -c "select record_type, record_id, revision, actor_user_id, rationale from revision order by recorded_at"
+```
 
 ## Background jobs: the dreamer
 
-`froodbase-dreamer` works background jobs from the River queue in PostgreSQL. Jobs are enqueued by `froodbase-api` inside the transaction that changes a record (the outbox pattern), so a job exists only if its record was committed; periodic jobs are inserted by the dreamer instance River elects as leader, so two instances never both schedule them. Argument types live in `internal/store/jobs`, one per job kind; workers live in `internal/dreamer`. Slice 0 has one kind, `heartbeat`, which runs every minute (and once at startup) and is unique per minute. Its completed rows in `river_job` are the proof the dreamer is alive:
+`froodbase-dreamer` works background jobs from the River queue in PostgreSQL. Jobs are enqueued by `froodbase-api` inside the transaction that changes a record (the outbox pattern), so a job exists only if its record was committed; periodic jobs are inserted by the dreamer instance River elects as leader, so two instances never both schedule them. Argument types live in `internal/store/jobs`, one per job kind; workers live in `internal/dreamer`. Slice 0 has one kind, `heartbeat`, which runs every minute (and once at startup) and is unique per minute; slice 1 adds `index_record`, enqueued by the store's writer for every entity and assertion revision (its worker arrives with the slice 1 dreamer ticket). The heartbeat's completed rows in `river_job` are the proof the dreamer is alive:
 
 ```bash
 docker compose exec -T postgres psql -U froodbase -d froodbase -c "select id, kind, state, finalized_at from river_job order by id desc limit 5"
@@ -133,7 +164,8 @@ Read by `compose.yaml` to assemble the stack:
 |---|---|---|
 | `FROODBASE_DB_USER` | `froodbase` | PostgreSQL role, also used in the connection URL |
 | `FROODBASE_DB_NAME` | `froodbase` | PostgreSQL database |
-| `FROODBASE_DB_PASSWORD` | generated by `make up` | PostgreSQL password; required, never committed |
+| `FROODBASE_DB_PASSWORD` | generated by `make up` | Password of the owner role, used by the `migrate` service; required, never committed |
+| `FROODBASE_APP_DB_PASSWORD` | generated by `make up` | Password of the service role `froodbase_app`, used by the api and dreamer; required, never committed |
 | `FROODBASE_DB_PORT` | `5432` | Host port on 127.0.0.1 where PostgreSQL is published for `psql` |
 | `FROODBASE_API_PORT` | `8080` | Host port on 127.0.0.1 where `froodbase-api` is published |
 | `FROODBASE_DREAMER_PORT` | `8081` | Host port on 127.0.0.1 where the dreamer's health endpoint is published |
@@ -144,7 +176,7 @@ Read by the binaries (`internal/config`); Compose sets them for the containers:
 |---|---|---|
 | `FROODBASE_API_ADDR` | `:8080` | Listen address of `froodbase-api` |
 | `FROODBASE_DREAMER_ADDR` | `:8081` | Health listen address of `froodbase-dreamer` (queue depth) |
-| `FROODBASE_DATABASE_URL` | none, required | PostgreSQL connection URL (`postgres://user:password@host:port/db?sslmode=disable`) read by `froodbase-api` and `froodbase-dreamer`; its value is never logged |
+| `FROODBASE_DATABASE_URL` | none, required | PostgreSQL connection URL (`postgres://user:password@host:port/db?sslmode=disable`) read by `froodbase-api` and `froodbase-dreamer` (as `froodbase_app`) and by `froodbase-api migrate` (as the owner); its value is never logged |
 | `FROODBASE_USERS_FILE` | none, required by `froodbase-api` | Path of the static users JSON file (Compose mounts `local/users.json` at `/etc/froodbase/users.json`) |
 
 Read by `froodbase-mcp` on the host, normally set in the Claude Code registration:

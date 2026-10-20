@@ -27,6 +27,8 @@ jobs:
         run: go test -race -cover ./...
       - name: Build
         run: make build
+      - name: Generated sqlc code is current
+        run: make sqlc-check
 
   integration:
     runs-on: ubuntu-latest
@@ -59,6 +61,7 @@ jobs:
         run: |
           out=$(make migrate-status)
           echo "$out" | grep -E "^ +1 +applied"
+          echo "$out" | grep -E "^ +2 +applied"
           echo "$out" | grep -E "river \(job queue schema\)"
       - name: MCP endpoint rejects anonymous requests
         run: |
@@ -103,6 +106,12 @@ jobs:
           docker compose exec -T postgres psql -U froodbase -d froodbase -tA \
             -c "select count(*) from pg_extension where extname in ('vector', 'pg_trgm', 'btree_gist')" \
             | grep -qx 3
+      - name: The api and dreamer run as the service role, which owns nothing
+        run: |
+          docker compose exec -T postgres psql -U froodbase -d froodbase -tA \
+            -c "select count(*) from pg_stat_activity where usename = 'froodbase_app'" | grep -qvx 0
+          docker compose exec -T postgres psql -U froodbase -d froodbase -tA \
+            -c "select count(*) from pg_tables where tableowner = 'froodbase_app'" | grep -qx 0
       - name: Show logs
         if: always()
         run: docker compose logs

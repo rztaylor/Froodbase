@@ -1,4 +1,4 @@
-.PHONY: build test test-integration lint vet fmt validate clean up down logs migrate migrate-status
+.PHONY: build test test-integration lint vet fmt validate clean up down logs migrate migrate-status sqlc sqlc-check
 
 # Pure Go: binaries are built with cgo off (as in the Dockerfile), so no C
 # compiler is needed and macOS never shows its developer-tools prompt. The
@@ -42,6 +42,17 @@ fmt:
 
 validate: vet lint test build
 
+# sqlc runs through `go run` at a pinned version (pure Go, no install). It
+# regenerates internal/store/gen from the queries and migrations under
+# internal/store; sqlc-check fails when the committed output is stale.
+SQLC := go run github.com/sqlc-dev/sqlc/cmd/sqlc@v1.30.0 -f internal/store/sqlc.yaml
+
+sqlc:
+	$(SQLC) generate
+
+sqlc-check:
+	$(SQLC) diff
+
 clean:
 	rm -rf bin dist .cache coverage.out
 
@@ -50,9 +61,11 @@ clean:
 export VERSION COMMIT DATE
 
 .env:
-	@echo "creating .env from .env.example with a generated database password"
+	@echo "creating .env from .env.example with generated database passwords"
 	@pw=$$(head -c 16 /dev/urandom | od -An -tx1 | tr -d ' \n'); \
-	sed -e "s/^FROODBASE_DB_PASSWORD=$$/FROODBASE_DB_PASSWORD=$$pw/" .env.example > .env
+	app=$$(head -c 16 /dev/urandom | od -An -tx1 | tr -d ' \n'); \
+	sed -e "s/^FROODBASE_DB_PASSWORD=$$/FROODBASE_DB_PASSWORD=$$pw/" \
+	    -e "s/^FROODBASE_APP_DB_PASSWORD=$$/FROODBASE_APP_DB_PASSWORD=$$app/" .env.example > .env
 
 local/users.json:
 	@echo "creating local/users.json from local/users.example.json (dev users, password froodbase-dev)"

@@ -18,7 +18,7 @@ import (
 func TestHeartbeatIsWorked(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 	defer cancel()
-	pool := storetest.Pool(t)
+	pool := storetest.Open(t).App // the service role, as in production
 
 	// Enqueue a heartbeat for a fixed past minute and wait for the worker to
 	// complete it; RunOnStart also inserts one for the current minute.

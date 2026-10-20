@@ -11,10 +11,13 @@ services:
       POSTGRES_USER: ${FROODBASE_DB_USER:-froodbase}
       POSTGRES_PASSWORD: ${FROODBASE_DB_PASSWORD:?set FROODBASE_DB_PASSWORD in .env (make up generates one)}
       POSTGRES_DB: ${FROODBASE_DB_NAME:-froodbase}
+      # The service role (local/postgres-init creates it on first start).
+      FROODBASE_APP_DB_PASSWORD: ${FROODBASE_APP_DB_PASSWORD:?set FROODBASE_APP_DB_PASSWORD in .env (make up generates one)}
     ports:
       - "127.0.0.1:${FROODBASE_DB_PORT:-5432}:5432"
     volumes:
       - postgres-data:/var/lib/postgresql/data
+      - ./local/postgres-init:/docker-entrypoint-initdb.d:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U \"$${POSTGRES_USER}\" -d \"$${POSTGRES_DB}\""]
       interval: 5s
@@ -39,6 +42,8 @@ services:
       postgres:
         condition: service_healthy
 
+  # The api and dreamer connect as froodbase_app, which owns no table and is
+  # subject to row-level security; only the migrate service uses the owner.
   api:
     build:
       context: .
@@ -50,7 +55,7 @@ services:
     image: froodbase-api:local
     environment:
       FROODBASE_API_ADDR: ":8080"
-      FROODBASE_DATABASE_URL: postgres://${FROODBASE_DB_USER:-froodbase}:${FROODBASE_DB_PASSWORD}@postgres:5432/${FROODBASE_DB_NAME:-froodbase}?sslmode=disable
+      FROODBASE_DATABASE_URL: postgres://froodbase_app:${FROODBASE_APP_DB_PASSWORD}@postgres:5432/${FROODBASE_DB_NAME:-froodbase}?sslmode=disable
       FROODBASE_USERS_FILE: /etc/froodbase/users.json
     volumes:
       - ./local/users.json:/etc/froodbase/users.json:ro
@@ -78,7 +83,7 @@ services:
     image: froodbase-dreamer:local
     environment:
       FROODBASE_DREAMER_ADDR: ":8081"
-      FROODBASE_DATABASE_URL: postgres://${FROODBASE_DB_USER:-froodbase}:${FROODBASE_DB_PASSWORD}@postgres:5432/${FROODBASE_DB_NAME:-froodbase}?sslmode=disable
+      FROODBASE_DATABASE_URL: postgres://froodbase_app:${FROODBASE_APP_DB_PASSWORD}@postgres:5432/${FROODBASE_DB_NAME:-froodbase}?sslmode=disable
     ports:
       - "127.0.0.1:${FROODBASE_DREAMER_PORT:-8081}:8081"
     depends_on:

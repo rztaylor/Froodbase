@@ -29,3 +29,13 @@ func TestHeartbeatArgs(t *testing.T) {
 		t.Fatal("heartbeat is not unique by args")
 	}
 }
+
+func TestIndexRecordArgs(t *testing.T) {
+	args := IndexRecordArgs{RecordID: "r1", RecordType: "assertion", AreaID: "a1", Revision: 2}
+	if args.Kind() != KindIndexRecord || KindIndexRecord != "index_record" {
+		t.Errorf("Kind() = %q", args.Kind())
+	}
+	if !args.InsertOpts().UniqueOpts.ByArgs {
+		t.Error("index_record is not unique by args")
+	}
+}
