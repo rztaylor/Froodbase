@@ -47,7 +47,10 @@ func run(args []string) int {
 
 	api := client.New(cfg.APIURL, cfg.Username, cfg.Password)
 	server := mcpserver.New(version.Version, mcpserver.Handlers{
-		Whoami: api.Whoami,
+		Whoami:     api.Whoami,
+		Contribute: api.Contribute,
+		GetRecord:  api.GetRecord,
+		GetHistory: api.GetHistory,
 	})
 	log.Info("froodbase-mcp starting", "version", version.Version, "api_url", cfg.APIURL, "user", cfg.Username)
 

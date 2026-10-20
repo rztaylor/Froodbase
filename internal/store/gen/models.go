@@ -101,6 +101,15 @@ type Evidence struct {
 	RecordedAt     time.Time
 }
 
+type IdempotencyKey struct {
+	CallerUserID string
+	Key          string
+	Tool         string
+	RequestHash  string
+	Response     []byte
+	CreatedAt    time.Time
+}
+
 type KnowledgeArea struct {
 	ID         string
 	Key        string

@@ -14,6 +14,7 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
+	"github.com/rztaylor/froodbase/internal/apihandlers"
 	"github.com/rztaylor/froodbase/internal/authz/staticusers"
 	"github.com/rztaylor/froodbase/internal/config"
 	"github.com/rztaylor/froodbase/internal/httpserver"
@@ -72,7 +73,16 @@ func run(args []string) int {
 	}
 	defer pool.Close()
 
-	mcpServer := mcpserver.New(version.Version, mcpserver.APIHandlers())
+	areas := apihandlers.NewAreas(pool)
+	created, err := areas.Ensure(ctx, users.AreaKeys())
+	if err != nil {
+		log.Error("froodbase-api failed", "err", err)
+		return 1
+	}
+	if len(created) > 0 {
+		log.Info("froodbase-api created knowledge areas from the users file", "areas", created)
+	}
+	mcpServer := mcpserver.New(version.Version, apihandlers.New(pool, areas, "froodbase-api/"+version.Version))
 	mcpHandler := mcp.NewStreamableHTTPHandler(
 		func(*http.Request) *mcp.Server { return mcpServer },
 		&mcp.StreamableHTTPOptions{Stateless: true, JSONResponse: true, Logger: log},

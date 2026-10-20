@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"sort"
 	"strings"
 
 	"golang.org/x/crypto/bcrypt"
@@ -155,6 +156,22 @@ func (s *Store) Build(_ context.Context, p authz.Principal) (*authz.Context, err
 // Len reports the number of users.
 func (s *Store) Len() int {
 	return len(s.users)
+}
+
+// AreaKeys lists every knowledge area key any user holds a grant in, sorted.
+func (s *Store) AreaKeys() []string {
+	set := map[string]struct{}{}
+	for _, e := range s.users {
+		for area := range e.context.Grants {
+			set[area] = struct{}{}
+		}
+	}
+	keys := make([]string, 0, len(set))
+	for k := range set {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	return keys
 }
 
 // HashPassword returns a bcrypt hash suitable for password_hash.
