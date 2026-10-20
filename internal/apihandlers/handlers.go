@@ -33,5 +33,8 @@ func New(pool *store.Pool, areas *Areas, client string) mcpserver.Handlers {
 		GetHistory: func(ctx context.Context, in wire.GetHistoryInput) (wire.HistoryOutput, error) {
 			return reads.GetHistory(ctx, authz.FromContext(ctx), in)
 		},
+		Search: func(ctx context.Context, in wire.SearchInput) (wire.SearchOutput, error) {
+			return reads.Search(ctx, authz.FromContext(ctx), in)
+		},
 	}
 }

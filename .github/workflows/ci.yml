@@ -83,6 +83,14 @@ jobs:
           curl --fail -s -u carol:froodbase-dev -H 'Content-Type: application/json' -H 'Accept: application/json, text/event-stream' \
             -d "{\"jsonrpc\":\"2.0\",\"id\":2,\"method\":\"tools/call\",\"params\":{\"name\":\"get_record\",\"arguments\":{\"id\":\"$id\"}}}" http://127.0.0.1:8080/mcp \
             | grep -q '"kind":"observation"'
+      - name: search finds the entity by a misspelt name and the observation by a body word
+        run: |
+          curl --fail -s -u carol:froodbase-dev -H 'Content-Type: application/json' -H 'Accept: application/json, text/event-stream' \
+            -d '{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"search","arguments":{"query":"Improt Tool"}}}' http://127.0.0.1:8080/mcp \
+            | grep -q '"candidate":true'
+          curl --fail -s -u carol:froodbase-dev -H 'Content-Type: application/json' -H 'Accept: application/json, text/event-stream' \
+            -d '{"jsonrpc":"2.0","id":4,"method":"tools/call","params":{"name":"search","arguments":{"query":"callback"}}}' http://127.0.0.1:8080/mcp \
+            | grep -q '"channel":"full_text"'
       - name: froodbase-mcp forwards whoami over stdio
         run: |
           make build

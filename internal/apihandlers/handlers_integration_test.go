@@ -162,6 +162,99 @@ func TestContributeReadBackAndHistory(t *testing.T) {
 	}
 }
 
+func TestSearchChannelsAndAuthorisation(t *testing.T) {
+	ctx := context.Background()
+	pool := storetest.Open(t).App
+	areas := NewAreas(pool)
+	if _, err := areas.Ensure(ctx, []string{"demo", "other"}); err != nil {
+		t.Fatal(err)
+	}
+	h := New(pool, areas, "test/0")
+	bob := caller("bob", map[string][]authz.Role{"demo": {authz.RoleContributor}})
+	withBob := authz.WithContext(ctx, bob)
+	in := input("s1")
+	in.Evidence[0].AccessClass = "restricted"
+	out, err := h.Contribute(withBob, in)
+	if err != nil {
+		t.Fatal(err)
+	}
+	obsID, toolID := "", ""
+	for _, r := range out.Records {
+		switch r.Ref {
+		case "obs":
+			obsID = r.ID
+		case "tool":
+			toolID = r.ID
+		}
+	}
+
+	// Exact name.
+	res, err := h.Search(withBob, wire.SearchInput{Query: "import tool"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(res.Results) == 0 || res.Results[0].Record.ID != toolID || res.Results[0].Match.Channel != wire.ChannelIdentifier || res.Results[0].Match.Candidate {
+		t.Fatalf("exact name search = %+v", res.Results)
+	}
+	// Misspelt name within the trigram threshold is a candidate.
+	res, err = h.Search(withBob, wire.SearchInput{Query: "Improt Tool"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(res.Results) == 0 || res.Results[0].Record.ID != toolID || !res.Results[0].Match.Candidate || res.Results[0].Match.Similarity <= 0 {
+		t.Fatalf("misspelt name search = %+v", res.Results)
+	}
+	// Far from any name: nothing.
+	res, err = h.Search(withBob, wire.SearchInput{Query: "zzzzqqqq"})
+	if err != nil || len(res.Results) != 0 {
+		t.Fatalf("no-match search = %+v, %v", res.Results, err)
+	}
+	// A word in the body finds the observation with its full fields.
+	res, err = h.Search(withBob, wire.SearchInput{Query: "callback"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var found *wire.SearchResult
+	for i := range res.Results {
+		if res.Results[i].Record.ID == obsID {
+			found = &res.Results[i]
+		}
+	}
+	if found == nil || found.Match.Channel != wire.ChannelFullText || found.Record.Kind != "observation" || found.Record.LifecycleState != "active" ||
+		found.Record.Support == nil || found.Record.Scope == nil || !found.Record.ValidityUnknown || len(found.Record.Citations) != 2 {
+		t.Fatalf("body search = %+v", found)
+	}
+	// Restricted evidence shown with the claim is audited.
+	demoID, _ := areas.AreaID(ctx, "demo")
+	events, err := pool.AuditEventsForArea(ctx, store.Caller{UserID: "bob", AreaIDs: []string{string(demoID)}}, demoID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	restricted := 0
+	for _, e := range events {
+		if e.EventType == retrieval.AuditRestrictedRead {
+			restricted++
+		}
+	}
+	if restricted == 0 {
+		t.Fatal("no restricted_read audit event after showing restricted evidence")
+	}
+	// A caller without the area sees nothing and no count.
+	dave := caller("dave", map[string][]authz.Role{"other": {authz.RoleReviewer}})
+	res, err = h.Search(authz.WithContext(ctx, dave), wire.SearchInput{Query: "Import Tool"})
+	if err != nil || len(res.Results) != 0 {
+		t.Fatalf("stranger search = %+v, %v", res, err)
+	}
+	// Area filter the caller lacks: nothing.
+	res, err = h.Search(withBob, wire.SearchInput{Query: "Import Tool", Area: "other"})
+	if err != nil || len(res.Results) != 0 {
+		t.Fatalf("other-area search = %+v, %v", res, err)
+	}
+	if _, err := h.Search(withBob, wire.SearchInput{Query: "  "}); !errors.Is(err, retrieval.ErrEmptyQuery) {
+		t.Fatalf("empty query err = %v", err)
+	}
+}
+
 func evidenceID(out wire.ContributeOutput, ref string) string {
 	for _, r := range out.Records {
 		if r.Ref == ref {

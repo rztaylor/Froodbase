@@ -140,6 +140,13 @@ func (c *Client) GetRecord(ctx context.Context, in wire.GetRecordInput) (wire.Re
 	return out, err
 }
 
+// Search forwards the search tool.
+func (c *Client) Search(ctx context.Context, in wire.SearchInput) (wire.SearchOutput, error) {
+	var out wire.SearchOutput
+	err := c.call(ctx, mcpserver.ToolSearch, in, &out)
+	return out, err
+}
+
 // GetHistory forwards the get_history tool.
 func (c *Client) GetHistory(ctx context.Context, in wire.GetHistoryInput) (wire.HistoryOutput, error) {
 	var out wire.HistoryOutput
