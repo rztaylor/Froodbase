@@ -64,7 +64,7 @@ func TestValidateDeductions(t *testing.T) {
 	ok := map[string]func(*wire.ContributeInput){
 		"assertions only": func(in *wire.ContributeInput) {
 			in.Observations = nil
-			in.Assertions[1].DerivedFrom = []string{"existing-id"}
+			in.Assertions[1].DerivedFrom = []string{"6f1c9a52-3b0e-4f4e-9d61-2a7c5e8b1d40"}
 		},
 		"observation as an assertion": func(in *wire.ContributeInput) {
 			in.Assertions = append(in.Assertions, wire.AssertionInput{Ref: "o2", Kind: "observation", Subject: "e1", BodyMarkdown: "Seen", Evidence: []string{"ev1"}})
@@ -100,6 +100,7 @@ func TestValidateDeductions(t *testing.T) {
 		"cycle":                       {func(in *wire.ContributeInput) { in.Assertions[1].DerivedFrom = []string{"d1"} }, "cycle involving d1, i1"},
 		"self":                        {func(in *wire.ContributeInput) { in.Assertions[1].DerivedFrom = []string{"i1"} }, "cycle"},
 		"ref shared with observation": {func(in *wire.ContributeInput) { in.Assertions[0].Ref = "o1" }, "used twice"},
+		"typo ref":                    {func(in *wire.ContributeInput) { in.Assertions[1].DerivedFrom = []string{"o2"} }, "neither the ref of an assertion in this call nor an assertion id"},
 		"no subject":                  {func(in *wire.ContributeInput) { in.Assertions[1].Subject = " " }, "no subject"},
 	}
 	for name, tt := range bad {

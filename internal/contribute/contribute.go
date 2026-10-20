@@ -319,11 +319,13 @@ func validateInput(in wire.ContributeInput) error {
 			}
 			if seen[src] {
 				links = append(links, domain.Derivation{DerivedID: domain.ID(a.Ref), SourceID: domain.ID(src)})
+			} else if _, err := uuid.Parse(src); err != nil {
+				return fmt.Errorf("%w: %s %q is derived from %q, which is neither the ref of an assertion in this call nor an assertion id", ErrInvalidInput, kind, a.Ref, src)
 			}
 		}
 	}
 	if _, err := domain.OrderByDerivation(ids, links); err != nil {
-		return fmt.Errorf("%w: derived_from refs form a %v; a record cannot be derived, directly or through others, from itself", ErrInvalidInput, err)
+		return fmt.Errorf("%w: derived_from refs loop (%v); a record cannot be derived, directly or through others, from itself", ErrInvalidInput, err)
 	}
 	return nil
 }
