@@ -4,7 +4,14 @@ All notable changes to Froodbase are recorded here. The format follows Keep a Ch
 
 ## Unreleased
 
+### Added
+
+- Records are stored with full history, audit and per-area access control: migration `00002_records.sql` creates the slice 1 tables (knowledge areas, entities and names, observation assertions, evidence citing living sources by URI, revision and locator, claim evidence, contributions, revisions with full snapshots, audit events, support events and versioned support configuration seeded with the service default), with row-level security on every table keyed on the caller's areas and a non-owning service role, `froodbase_app`, that cannot bypass it. A transactional writer in `internal/store` records each write with its revision, audit event, one `root_added` support event per distinct evidence root and the `index_record` job together; the support score is a recomputable projection of a claim's events under the area's configuration version. Queries are generated with sqlc (`make sqlc`).
+- The local stack now runs the api and dreamer as `froodbase_app` with its own generated password (`FROODBASE_APP_DB_PASSWORD`); a database volume created before this change needs `docker compose down -v`.
+
 ### Changed
+
+- Evidence and contributions belong to a knowledge area, and evidence can name a locator (line range or section) inside the cited revision.
 
 - Evidence can no longer cite a report revision held by Froodbase: the `report_revision` source kind and `froodbase://` URIs are removed from the knowledge model, leaving repository, ticket, telemetry query and document sources, each naming its revision.
 - Planning direction (docs only, no shipped behaviour yet): a claim's certainty is now an earned support score rather than a proposed-to-accepted approval step. Support rises with distinct evidence roots, verification checks and evidenced use outcomes reported through a new `report_outcome` tool, and falls on contradiction, failed outcomes, source changes and reviewer flags; retrieval and repetition add nothing. The lifecycle is active, disputed, superseded, retracted. Reports, conversations and transcripts are never an input: the planned `ingest_report` tool, its local preview, source-copy retention and the `report_revision` source kind are removed from the design, and `propose_contribution` is renamed `contribute`.

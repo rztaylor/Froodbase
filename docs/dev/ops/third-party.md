@@ -10,3 +10,9 @@ Direct Go dependencies with their licences, recorded when they are added (`.agen
 | `github.com/riverqueue/river` (with `riverdriver/riverpgxv5`) | v0.49.0 | MPL-2.0, used unmodified | Background job queue in PostgreSQL: transactional insertion from `internal/store`, workers and periodic jobs in `internal/dreamer`, schema via `rivermigrate` |
 | `github.com/testcontainers/testcontainers-go` (with `modules/postgres`) | v0.44.0 | MIT | Disposable PostgreSQL for integration tests (`internal/store/storetest`); tests only |
 | `golang.org/x/crypto` | v0.58.0 | BSD-3-Clause | bcrypt password hashes for the static users file (`internal/authz/staticusers`) |
+
+Build-time tools that are not module dependencies (nothing from them ships in a binary):
+
+| Tool | Version | Licence | Used for |
+|---|---|---|---|
+| `github.com/sqlc-dev/sqlc` | v1.30.0 | MIT | Generates `internal/store/gen` from the queries and migrations (`make sqlc`); the generated code imports only `pgx/v5` |
