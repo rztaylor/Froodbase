@@ -21,6 +21,7 @@ const (
 	ToolContribute = "contribute"
 	ToolGetRecord  = "get_record"
 	ToolGetHistory = "get_history"
+	ToolSearch     = "search"
 )
 
 // WhoamiOutput is the whoami tool's structured result.
@@ -76,6 +77,7 @@ type Handlers struct {
 	Contribute func(ctx context.Context, in wire.ContributeInput) (wire.ContributeOutput, error)
 	GetRecord  func(ctx context.Context, in wire.GetRecordInput) (wire.Record, error)
 	GetHistory func(ctx context.Context, in wire.GetHistoryInput) (wire.HistoryOutput, error)
+	Search     func(ctx context.Context, in wire.SearchInput) (wire.SearchOutput, error)
 }
 
 // New builds an MCP server exposing the tools whose handlers are set.
@@ -103,6 +105,14 @@ func New(version string, h Handlers) *mcp.Server {
 			Description: "Read one record (an entity, an observation or an evidence record) by id with its kind, lifecycle state, support, scope, validity, verification date and citations. Records outside your knowledge areas are reported as not found.",
 			Annotations: &mcp.ToolAnnotations{ReadOnlyHint: true},
 		}, wrap(h.GetRecord))
+	}
+	if h.Search != nil {
+		mcp.AddTool(s, &mcp.Tool{
+			Name: ToolSearch,
+			Description: "Search the knowledge areas you can read by an entity name (exact or near-miss; a near-miss is a candidate for you to confirm, never resolved for you) or by words in observation bodies. " +
+				"Results carry kind, lifecycle state, support, scope, validity, verification date, citations and which channel matched. Nothing is reported about records you cannot read. Optional area limits the search to one area key.",
+			Annotations: &mcp.ToolAnnotations{ReadOnlyHint: true},
+		}, wrap(h.Search))
 	}
 	if h.GetHistory != nil {
 		mcp.AddTool(s, &mcp.Tool{

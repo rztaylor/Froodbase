@@ -195,3 +195,42 @@ type HistoryOutput struct {
 	Revisions     []Revision     `json:"revisions"`
 	SupportEvents []SupportEvent `json:"support_events,omitempty"`
 }
+
+// SearchInput is a search over the caller's knowledge areas (TR-50). Area,
+// when set, limits the search to one area key. Modes and scope filters
+// arrive with slice 2.
+type SearchInput struct {
+	Query string `json:"query"`
+	Area  string `json:"area,omitempty"`
+	Limit int    `json:"limit,omitempty"`
+}
+
+// Channel names of search results.
+const (
+	ChannelIdentifier = "identifier"
+	ChannelFullText   = "full_text"
+)
+
+// Match says how a result matched: the channel, the name it matched on for
+// the identifier channel with its similarity, and whether it is a near-miss
+// candidate the caller must confirm rather than an exact match (D13).
+type Match struct {
+	Channel    string  `json:"channel"`
+	Name       string  `json:"name,omitempty"`
+	Similarity float64 `json:"similarity,omitempty"`
+	Candidate  bool    `json:"candidate"`
+	Rank       float64 `json:"rank,omitempty"`
+}
+
+// SearchResult is one record with how it matched.
+type SearchResult struct {
+	Record Record `json:"record"`
+	Match  Match  `json:"match"`
+}
+
+// SearchOutput lists results, identifier hits first. It carries no total
+// and nothing about records the caller may not read (PR-62).
+type SearchOutput struct {
+	Query   string         `json:"query"`
+	Results []SearchResult `json:"results"`
+}

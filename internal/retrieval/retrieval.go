@@ -51,7 +51,7 @@ func (s *Service) GetRecord(ctx context.Context, ac *authz.Context, in wire.GetR
 		return wire.Record{}, err
 	}
 	if ev, err := s.pool.GetEvidence(ctx, caller, id); err == nil {
-		return s.evidenceRecord(ctx, ev)
+		return s.evidenceRecord(ctx, caller, ev)
 	} else if !errors.Is(err, store.ErrNotFound) {
 		return wire.Record{}, err
 	}
@@ -113,6 +113,9 @@ func (s *Service) assertionRecord(ctx context.Context, caller store.Caller, a st
 	if err != nil {
 		return wire.Record{}, err
 	}
+	if err := s.auditRestricted(ctx, caller, a.Assertion.AreaID, a.Assertion.ID, evidence); err != nil {
+		return wire.Record{}, err
+	}
 	rec := wire.Record{
 		ID: string(a.Assertion.ID), RecordType: store.RecordAssertion, Area: area, AreaID: string(a.Assertion.AreaID), Kind: string(a.Assertion.Kind),
 		LifecycleState: a.LifecycleState, Revision: a.Revision, Support: SupportSummary(a.SupportScore, a.SupportConfigVersion, events, cfg, a.Assertion.Kind),
@@ -141,12 +144,15 @@ func (s *Service) entityRecord(ctx context.Context, e store.EntityRecord) (wire.
 	}, nil
 }
 
-func (s *Service) evidenceRecord(ctx context.Context, ev domain.Evidence) (wire.Record, error) {
+func (s *Service) evidenceRecord(ctx context.Context, caller store.Caller, ev domain.Evidence) (wire.Record, error) {
 	area, err := s.areas.AreaKey(ctx, ev.AreaID)
 	if err != nil {
 		return wire.Record{}, err
 	}
 	c := citationToWire(ev)
+	if err := s.auditRestricted(ctx, caller, ev.AreaID, "", []domain.Evidence{ev}); err != nil {
+		return wire.Record{}, err
+	}
 	return wire.Record{
 		ID: string(ev.ID), RecordType: store.RecordEvidence, Area: area, AreaID: string(ev.AreaID), LifecycleState: store.LifecycleActive,
 		Revision: 1, RecordedAt: ev.RecordedAt, Evidence: &c,

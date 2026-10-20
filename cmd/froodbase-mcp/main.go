@@ -51,6 +51,7 @@ func run(args []string) int {
 		Contribute: api.Contribute,
 		GetRecord:  api.GetRecord,
 		GetHistory: api.GetHistory,
+		Search:     api.Search,
 	})
 	log.Info("froodbase-mcp starting", "version", version.Version, "api_url", cfg.APIURL, "user", cfg.Username)
 
