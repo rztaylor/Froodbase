@@ -17,12 +17,11 @@ const (
 	SourceTicket         SourceKind = "ticket"
 	SourceTelemetryQuery SourceKind = "telemetry_query"
 	SourceDocument       SourceKind = "document"
-	SourceReportRevision SourceKind = "report_revision"
 )
 
 // SourceKinds lists the documented kinds in a stable order.
 func SourceKinds() []SourceKind {
-	return []SourceKind{SourceRepository, SourceTicket, SourceTelemetryQuery, SourceDocument, SourceReportRevision}
+	return []SourceKind{SourceRepository, SourceTicket, SourceTelemetryQuery, SourceDocument}
 }
 
 // Valid reports whether k is a documented source kind.
@@ -44,7 +43,7 @@ func ParseSourceKind(s string) (SourceKind, error) {
 	return k, nil
 }
 
-// AccessClass says who may see a piece of evidence or a report revision, from
+// AccessClass says who may see a piece of evidence, from
 // narrowest to widest: the people named on the source, everyone with the
 // knowledge area, everyone in the organisation. Evidence never claims a wider
 // class than its source (TR-61), so restricted material stays restricted in
@@ -114,14 +113,14 @@ func (e Evidence) Root() ID {
 // Validate checks that the evidence is a shareable citation (TR-61): the
 // source kind is documented, the URI matches the allowed pattern for that
 // kind, the access class is known, the record names the revision it cites
-// (PR-10; report revisions are named by their URI) and has an id and a
-// recording time. Local file paths, relative and home paths, Windows drive and UNC
-// paths, and URLs on the contributor's own machine fail with ErrLocalSource;
-// other mismatches fail with ErrURINotAllowed.
+// (PR-10) and has an id and a recording time. Local file paths, relative and
+// home paths, Windows drive and UNC paths, and URLs on the contributor's own
+// machine fail with ErrLocalSource; other mismatches fail with
+// ErrURINotAllowed.
 //
-// Allowed patterns: repository, ticket, telemetry_query and document URIs are
-// https URLs with a host that is not loopback; report_revision URIs name a
-// revision held by Froodbase as froodbase://report-revisions/<revision-id>.
+// Allowed pattern: every source kind cites an https URL with a host that is
+// not loopback. Froodbase never holds a copy of a source (PR-50), so there is
+// no internal URI scheme.
 func (e Evidence) Validate() error {
 	if err := e.ID.Validate(); err != nil {
 		return fieldErr("evidence id", err)
@@ -135,10 +134,10 @@ func (e Evidence) Validate() error {
 	if e.RecordedAt.IsZero() {
 		return fieldErr("recorded_at", ErrNoRecordedAt)
 	}
-	if err := validateSourceURI(e.SourceKind, e.SourceURI); err != nil {
+	if err := validateSourceURI(e.SourceURI); err != nil {
 		return fieldErr("source uri", err)
 	}
-	if e.SourceKind != SourceReportRevision && strings.TrimSpace(e.SourceRevision) == "" {
+	if strings.TrimSpace(e.SourceRevision) == "" {
 		return fieldErr("source revision", ErrNoRevision)
 	}
 	return nil
@@ -157,9 +156,7 @@ func (e Evidence) CheckAccess(source AccessClass) error {
 	return nil
 }
 
-const reportRevisionHost = "report-revisions"
-
-func validateSourceURI(kind SourceKind, raw string) error {
+func validateSourceURI(raw string) error {
 	raw = strings.TrimSpace(raw)
 	if raw == "" {
 		return ErrURINotAllowed
@@ -177,12 +174,6 @@ func validateSourceURI(kind SourceKind, raw string) error {
 		return ErrLocalSource
 	case len(scheme) == 1: // a Windows drive letter parsed as a scheme
 		return ErrLocalSource
-	}
-	if kind == SourceReportRevision {
-		if scheme != "froodbase" || u.Host != reportRevisionHost || strings.Trim(u.Path, "/") == "" {
-			return ErrURINotAllowed
-		}
-		return nil
 	}
 	if scheme != "https" || u.Hostname() == "" {
 		return ErrURINotAllowed

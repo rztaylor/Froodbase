@@ -6,6 +6,7 @@ All notable changes to Froodbase are recorded here. The format follows Keep a Ch
 
 ### Changed
 
+- Evidence can no longer cite a report revision held by Froodbase: the `report_revision` source kind and `froodbase://` URIs are removed from the knowledge model, leaving repository, ticket, telemetry query and document sources, each naming its revision.
 - Planning direction (docs only, no shipped behaviour yet): a claim's certainty is now an earned support score rather than a proposed-to-accepted approval step. Support rises with distinct evidence roots, verification checks and evidenced use outcomes reported through a new `report_outcome` tool, and falls on contradiction, failed outcomes, source changes and reviewer flags; retrieval and repetition add nothing. The lifecycle is active, disputed, superseded, retracted. Reports, conversations and transcripts are never an input: the planned `ingest_report` tool, its local preview, source-copy retention and the `report_revision` source kind are removed from the design, and `propose_contribution` is renamed `contribute`.
 
 ### Fixed
