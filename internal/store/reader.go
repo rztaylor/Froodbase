@@ -148,6 +148,26 @@ func (p *Pool) History(ctx context.Context, caller Caller, recordID domain.ID) (
 	return out, err
 }
 
+// Derivations lists the assertions a deduction was derived from (PR-13),
+// oldest first. A record derived from nothing, or invisible, has none.
+func (p *Pool) Derivations(ctx context.Context, caller Caller, derivedID domain.ID) ([]domain.Derivation, error) {
+	var out []domain.Derivation
+	err := p.inTx(ctx, caller, func(ctx context.Context, _ pgx.Tx, q *gen.Queries) error {
+		rows, err := q.ListDerivationSources(ctx, string(derivedID))
+		if err != nil {
+			return err
+		}
+		out = make([]domain.Derivation, 0, len(rows))
+		for _, r := range rows {
+			out = append(out, domain.Derivation{
+				DerivedID: domain.ID(r.DerivedID), SourceID: domain.ID(r.SourceID), AreaID: domain.ID(r.AreaID), Rationale: r.Rationale, RecordedAt: r.RecordedAt,
+			})
+		}
+		return nil
+	})
+	return out, err
+}
+
 // AuditEvents lists the audit events of a record, oldest first.
 func (p *Pool) AuditEvents(ctx context.Context, caller Caller, recordID domain.ID) ([]AuditRecord, error) {
 	var out []AuditRecord
