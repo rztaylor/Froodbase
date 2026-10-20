@@ -19,6 +19,7 @@ All notable changes to Froodbase are recorded here. The format follows Keep a Ch
 
 ### Fixed
 
+- Image builds no longer depend on fetching the Dockerfile syntax frontend from Docker Hub, which timed out on some networks; Docker's built-in BuildKit frontend supports the cache mounts the Dockerfile uses.
 - Building or testing on a Mac without Xcode's Command Line Tools no longer triggers Apple's developer-tools prompt: binaries build with cgo disabled everywhere, and on macOS the tests do too.
 
 ### Added
