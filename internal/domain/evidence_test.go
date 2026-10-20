@@ -6,7 +6,7 @@ import (
 )
 
 func shared(kind SourceKind, uri string) Evidence {
-	return Evidence{ID: "ev1", SourceKind: kind, SourceURI: uri, SourceRevision: "r1", Excerpt: "...", AccessClass: AccessArea, RecordedAt: t1}
+	return Evidence{ID: "ev1", AreaID: "a1", SourceKind: kind, SourceURI: uri, SourceRevision: "r1", Excerpt: "...", AccessClass: AccessArea, RecordedAt: t1}
 }
 
 func TestEvidenceValidate(t *testing.T) {
@@ -67,6 +67,16 @@ func TestEvidenceValidate(t *testing.T) {
 			e.RecordedAt = zeroTime()
 			return e
 		}(), ErrNoRecordedAt},
+		{"no area", func() Evidence {
+			e := shared(SourceDocument, "https://example.com/doc")
+			e.AreaID = ""
+			return e
+		}(), ErrEmptyID},
+		{"locator is optional", func() Evidence {
+			e := shared(SourceRepository, "https://github.com/rztaylor/Froodbase/blob/main/README.md")
+			e.SourceLocator = "L10-L20"
+			return e
+		}(), nil},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

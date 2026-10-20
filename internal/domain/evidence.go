@@ -91,9 +91,11 @@ func (c AccessClass) MorePermissiveThan(other AccessClass) bool {
 // distinct roots, not records (PR-12, TR-25).
 type Evidence struct {
 	ID             ID
+	AreaID         ID
 	SourceKind     SourceKind
 	SourceURI      string
 	SourceRevision string // commit, work-item revision, query snapshot or document version
+	SourceLocator  string // line range, section or query window inside the source, if any
 	Excerpt        string
 	AccessClass    AccessClass
 	RootEvidenceID ID
@@ -110,8 +112,8 @@ func (e Evidence) Root() ID {
 	return e.ID
 }
 
-// Validate checks that the evidence is a shareable citation (TR-61): the
-// source kind is documented, the URI matches the allowed pattern for that
+// Validate checks that the evidence is a shareable citation (TR-61): it
+// belongs to an area, the source kind is documented, the URI matches the allowed pattern for that
 // kind, the access class is known, the record names the revision it cites
 // (PR-10) and has an id and a recording time. Local file paths, relative and
 // home paths, Windows drive and UNC paths, and URLs on the contributor's own
@@ -124,6 +126,9 @@ func (e Evidence) Root() ID {
 func (e Evidence) Validate() error {
 	if err := e.ID.Validate(); err != nil {
 		return fieldErr("evidence id", err)
+	}
+	if err := e.AreaID.Validate(); err != nil {
+		return fieldErr("area id", err)
 	}
 	if !e.SourceKind.Valid() {
 		return fieldErr("source kind", ErrUnknownSourceKind)

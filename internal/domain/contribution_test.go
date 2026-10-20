@@ -9,7 +9,7 @@ import (
 func zeroTime() time.Time { return time.Time{} }
 
 func TestContributionValidate(t *testing.T) {
-	ok := Contribution{ID: "c1", ActorUserID: "u1", ActorAgentID: "claude", Client: "froodbase-mcp/0.1", InvestigationRef: "INC-1", RecordedAt: t1}
+	ok := Contribution{ID: "c1", AreaID: "a1", ActorUserID: "u1", ActorAgentID: "claude", Client: "froodbase-mcp/0.1", InvestigationRef: "INC-1", RecordedAt: t1}
 	tests := []struct {
 		name   string
 		mutate func(*Contribution)
@@ -19,6 +19,7 @@ func TestContributionValidate(t *testing.T) {
 		{"no agent is fine", func(c *Contribution) { c.ActorAgentID = "" }, nil},
 		{"no investigation ref is fine", func(c *Contribution) { c.InvestigationRef = "" }, nil},
 		{"empty id", func(c *Contribution) { c.ID = "" }, ErrEmptyID},
+		{"no area", func(c *Contribution) { c.AreaID = "" }, ErrEmptyID},
 		{"no human actor", func(c *Contribution) { c.ActorUserID = "" }, ErrEmptyID},
 		{"no recorded_at", func(c *Contribution) { c.RecordedAt = zeroTime() }, ErrNoRecordedAt},
 	}
