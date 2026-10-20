@@ -6,15 +6,7 @@ package domain
 // in the slice, so a restatement of a restatement still counts once; a root
 // that is not itself in the slice counts as one root.
 func Corroboration(evidence []Evidence) int {
-	byID := make(map[ID]Evidence, len(evidence))
-	for _, e := range evidence {
-		byID[e.ID] = e
-	}
-	roots := make(map[ID]struct{}, len(evidence))
-	for _, e := range evidence {
-		roots[resolveRoot(byID, e)] = struct{}{}
-	}
-	return len(roots)
+	return len(DistinctRoots(evidence))
 }
 
 // resolveRoot follows RootEvidenceID through the known records until it
