@@ -181,7 +181,13 @@ docker compose exec -T postgres psql -U froodbase -d froodbase -c "select record
 docker compose exec -T postgres psql -U froodbase -d froodbase -c "select id, kind, state, finalized_at from river_job order by id desc limit 5"
 ```
 
-The health endpoint on `FROODBASE_DREAMER_ADDR` reports the queue depth (jobs waiting or running) and answers 503 with `"status":"degraded"` when the database cannot be read.
+Slice 1 adds `index_record`, enqueued in the same transaction as every entity or assertion write (the outbox pattern): the worker refreshes the record's projections at its current revision and records it in `index_state`, the projection bookkeeping (identifiers and revisions only, never content). The job is unique per record while it waits or runs, so a burst of writes to one record collapses into one job. `rebuild_index` re-indexes every record of one area on demand:
+
+```bash
+docker compose run --rm --no-deps dreamer rebuild-index <area-id>
+```
+
+The health endpoint on `FROODBASE_DREAMER_ADDR` reports the queue depth (jobs waiting or running), `index_total` (records across every area) and `index_stale` (records not indexed at their current revision), and answers 503 with `"status":"degraded"` when the database cannot be read. A write that commits in the moment between a running index job reading the record and finishing stays stale until the next write or a rebuild; the count makes that visible. Migration `00004_index_state.sql` adds the table and the counting function.
 
 Behaviour beyond the health endpoint and the dreamer's startup line arrives slice by slice per `docs/planning/07-local-mvp.md`. Running a binary from `bin/` outside Compose needs the two `FROODBASE_` variables the binaries read, below.
 

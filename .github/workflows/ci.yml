@@ -110,6 +110,14 @@ jobs:
             | FROODBASE_API_URL=http://127.0.0.1:8080/mcp FROODBASE_USERNAME=alice FROODBASE_PASSWORD=froodbase-dev bin/froodbase-mcp 2>/dev/null \
             | grep -q '"froodbase_unavailable":true'
           docker compose start api
+      - name: Index job indexed the contributed records and health reports no stale records
+        run: |
+          for i in $(seq 1 30); do
+            stale=$(curl -s http://127.0.0.1:8081/healthz | python3 -c 'import sys,json; d=json.load(sys.stdin); print(d["index_stale"] if d["index_total"] > 0 else -1)')
+            [ "$stale" = 0 ] && exit 0
+            sleep 2
+          done
+          echo "records still stale"; curl -s http://127.0.0.1:8081/healthz; exit 1
       - name: Heartbeat job completed in the River job table
         run: |
           for i in $(seq 1 30); do
