@@ -31,6 +31,8 @@ type Dreamer struct {
 func New(log *slog.Logger, pool *store.Pool) (*Dreamer, error) {
 	workers := river.NewWorkers()
 	river.AddWorker(workers, &heartbeatWorker{log: log})
+	river.AddWorker(workers, &indexWorker{log: log, pool: pool})
+	river.AddWorker(workers, &rebuildWorker{log: log, pool: pool})
 
 	client, err := river.NewClient(riverpgxv5.New(pool.Pgx()), &river.Config{
 		Logger:       log,

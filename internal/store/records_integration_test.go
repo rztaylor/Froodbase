@@ -441,8 +441,11 @@ func TestRevisionsAreAppendOnly(t *testing.T) {
 	if h, err := db.App.History(ctx, callerA, f.ev1.ID); err != nil || len(h) != 1 || h[0].RecordType != store.RecordEvidence {
 		t.Errorf("evidence history = %+v, %v; want one revision", h, err)
 	}
-	if n := countAdmin(ctx, t, db.Admin, "select count(*) from river_job where kind = 'index_record'"); n != 4 {
-		t.Errorf("%d index jobs, want 4 (two revisions each of the entity and the assertion)", n)
+	// Index jobs are unique per record while they wait (FRB-12): the second
+	// revision of each record collapsed into the job its first revision
+	// enqueued, so two records have two jobs between them.
+	if n := countAdmin(ctx, t, db.Admin, "select count(*) from river_job where kind = 'index_record'"); n != 2 {
+		t.Errorf("%d index jobs, want 2 (one per record, bursts collapsed)", n)
 	}
 }
 

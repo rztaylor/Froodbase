@@ -24,6 +24,11 @@ type healthResponse struct {
 	Status     string `json:"status"`
 	Version    string `json:"version"`
 	QueueDepth int    `json:"queue_depth"`
+	// IndexTotal and IndexStale report the projection bookkeeping across
+	// every area: records in all, and records not indexed at their current
+	// revision (TR-57).
+	IndexTotal int `json:"index_total"`
+	IndexStale int `json:"index_stale"`
 }
 
 // HealthHandler answers with the version and the queue depth. A database
@@ -40,6 +45,12 @@ func (d *Dreamer) HealthHandler() http.Handler {
 			w.WriteHeader(http.StatusServiceUnavailable)
 		}
 		resp.QueueDepth = depth
+		if st, err := d.Staleness(ctx); err != nil {
+			resp.Status = "degraded"
+			w.WriteHeader(http.StatusServiceUnavailable)
+		} else {
+			resp.IndexTotal, resp.IndexStale = st.Total, st.Stale
+		}
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(resp)
 	})

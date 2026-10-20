@@ -110,6 +110,14 @@ type IdempotencyKey struct {
 	CreatedAt    time.Time
 }
 
+type IndexState struct {
+	RecordID   string
+	RecordType string
+	AreaID     string
+	Revision   int32
+	IndexedAt  time.Time
+}
+
 type KnowledgeArea struct {
 	ID         string
 	Key        string
