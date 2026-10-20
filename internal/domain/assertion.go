@@ -6,9 +6,9 @@ import (
 )
 
 // EpistemicKind says what kind of claim an assertion is (PR-03, TR-22). The
-// kind is explicit on every assertion and visible in every answer. Slice 1
-// writes observations only; decisions and inferences are named so nothing
-// downstream treats "observation" as the only shape.
+// kind is explicit on every assertion, visible in every answer and never
+// changes. Observations cite evidence; decisions and inferences may cite
+// evidence, be derived from other assertions, or both (PR-13, PR-42).
 type EpistemicKind string
 
 // The three epistemic kinds.
@@ -56,16 +56,16 @@ type Assertion struct {
 	Temporal
 }
 
-// NewObservation builds an observation recorded at recordedAt. It sets
-// RecordedAt only: ValidFrom and ValidTo stay nil because the time a fact was
-// written down says nothing about when it applied (TR-32). A contributor who
-// knows the validity sets it afterwards.
-func NewObservation(id, area, subject ID, bodyMarkdown string, scope Scope, recordedAt time.Time) (Assertion, error) {
+// NewAssertion builds an assertion of the given kind recorded at
+// recordedAt. It sets RecordedAt only: ValidFrom and ValidTo stay nil because
+// the time a fact was written down says nothing about when it applied
+// (TR-32). A contributor who knows the validity sets it afterwards.
+func NewAssertion(kind EpistemicKind, id, area, subject ID, bodyMarkdown string, scope Scope, recordedAt time.Time) (Assertion, error) {
 	a := Assertion{
 		ID:              id,
 		AreaID:          area,
 		SubjectEntityID: subject,
-		Kind:            KindObservation,
+		Kind:            kind,
 		BodyMarkdown:    bodyMarkdown,
 		Scope:           scope,
 		Temporal:        Temporal{RecordedAt: recordedAt},
@@ -74,6 +74,40 @@ func NewObservation(id, area, subject ID, bodyMarkdown string, scope Scope, reco
 		return Assertion{}, err
 	}
 	return a, nil
+}
+
+// NewObservation builds an observation: what was seen. See NewAssertion.
+func NewObservation(id, area, subject ID, bodyMarkdown string, scope Scope, recordedAt time.Time) (Assertion, error) {
+	return NewAssertion(KindObservation, id, area, subject, bodyMarkdown, scope, recordedAt)
+}
+
+// NewDecision builds a decision: what was approved or intended. See NewAssertion.
+func NewDecision(id, area, subject ID, bodyMarkdown string, scope Scope, recordedAt time.Time) (Assertion, error) {
+	return NewAssertion(KindDecision, id, area, subject, bodyMarkdown, scope, recordedAt)
+}
+
+// NewInference builds an inference: what was concluded. See NewAssertion.
+func NewInference(id, area, subject ID, bodyMarkdown string, scope Scope, recordedAt time.Time) (Assertion, error) {
+	return NewAssertion(KindInference, id, area, subject, bodyMarkdown, scope, recordedAt)
+}
+
+// CheckGrounds checks what an assertion of kind k rests on: the number of
+// evidence records it cites and of assertions it is derived from. An
+// observation is what was seen, so it cites evidence of its own (PR-43) and
+// is never derived; a decision or an inference may cite evidence, be derived
+// from other assertions, or both, but needs at least one (PR-13, PR-42).
+func (k EpistemicKind) CheckGrounds(evidence, sources int) error {
+	switch {
+	case !k.Valid():
+		return ErrUnknownEpistemicKind
+	case k == KindObservation && sources > 0:
+		return ErrObservationDerived
+	case k == KindObservation && evidence == 0:
+		return ErrNoEvidence
+	case evidence == 0 && sources == 0:
+		return ErrNoGrounds
+	}
+	return nil
 }
 
 // Validate checks the identifiers, the kind, the body and the temporal fields.
