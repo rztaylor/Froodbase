@@ -1,9 +1,13 @@
 // Package domain holds the knowledge model as plain Go types and the rules
 // they obey, with no I/O: knowledge areas, entities and their names,
-// assertions, evidence with roots, contributions, and the support model.
+// assertions, derivations, evidence with roots, contributions, and the
+// support model.
 //
 // It owns the vocabulary (entity types, epistemic kinds, source kinds, access
-// classes, support event types), record validation, evidence shareability
+// classes, support event types), record validation, what each kind must rest
+// on (an observation cites evidence; a decision or inference cites evidence,
+// is derived from other assertions, or both), derivation order and cycles,
+// the roots a deduction inherits from its sources, evidence shareability
 // (allowed source kinds and URI patterns; an access class never wider than
 // its source's), corroboration and distinct roots, and the support
 // projection: the service default support configuration, its bounds, and the
@@ -16,6 +20,6 @@
 // to append (contribute), retrieval, authorisation (authz) and id generation,
 // which callers supply. It imports only the standard library.
 //
-// Requirements: PR-01, PR-03, PR-06, PR-10 to PR-12, PR-15, PR-41, TR-20,
-// TR-22, TR-24, TR-25, TR-29, TR-43, TR-61.
+// Requirements: PR-01, PR-03, PR-06, PR-10 to PR-13, PR-15, PR-41, PR-42,
+// TR-20, TR-22, TR-24, TR-25, TR-29, TR-43, TR-61.
 package domain

@@ -148,10 +148,10 @@ Three tools arrive with slice 1, available in Claude through `froodbase-mcp` and
 
 | Tool | What it does |
 |---|---|
-| `contribute` | Writes one atomic change set to a knowledge area: entities, observations about them and the shareable evidence behind each observation. Every record is active at once with the support its distinct evidence roots give it; there is no approval step. Needs the contributor role in the area; a refusal is audited. |
-| `get_record` | Reads one record of any type by id with its kind, lifecycle state, support (score, configuration version, counts of roots, verifications and outcomes, threshold verdict), scope, validity, verification date and citations. |
-| `get_history` | Reads a record's content revisions (actor, time, rationale, snapshot) and, for a claim, its support events. |
-| `search` | Finds records in the areas you can read by an entity name, exact or near-miss (a near-miss is returned as a candidate with its similarity for you to confirm; it is never resolved for you), or by words in observation bodies (PostgreSQL full text, websearch syntax). Identifier hits come first. Nothing is said about records outside your areas, not even a count. Optional `area` limits the search to one area key; `limit` defaults to 10, at most 50. Reading evidence with the restricted access class, through search or get_record, writes a `restricted_read` audit event. |
+| `contribute` | Writes one atomic change set to a knowledge area: entities, assertions about them (observations, decisions and inferences) and the shareable evidence behind them. A decision or inference may name the assertions it was derived from. Every record is active at once with the support its distinct evidence roots give it; there is no approval step. Needs the contributor role in the area; a refusal is audited. |
+| `get_record` | Reads one record of any type by id with its kind, lifecycle state, support (score, configuration version, counts of roots, verifications and outcomes, threshold verdict), scope, validity, verification date and citations; a deduction also carries `derived: true` and the ids it was `derived_from`. |
+| `get_history` | Reads a record's content revisions (actor, time, rationale, snapshot) and, for a claim, its support events and the assertions it was derived from (`derivations`). |
+| `search` | Finds records in the areas you can read by an entity name, exact or near-miss (a near-miss is returned as a candidate with its similarity for you to confirm; it is never resolved for you), or by words in assertion bodies (PostgreSQL full text, websearch syntax). Identifier hits come first. Nothing is said about records outside your areas, not even a count. Optional `area` limits the search to one area key; `limit` defaults to 10, at most 50. Reading evidence with the restricted access class, through search or get_record, writes a `restricted_read` audit event. |
 
 Knowledge areas are created at API start-up for every area key the users file grants (the sample file grants `demo`), so the local stack needs no admin step; the cloud move adds an admin tool. Reports, conversations and transcripts are never sent: an agent contributes individual findings, each citing an https source with a revision, and lists the returned ids in its report.
 
@@ -171,6 +171,22 @@ curl -s -u bob:froodbase-dev -H 'Content-Type: application/json' -H 'Accept: app
 
 The result lists each record with its id; pass an id to `get_record` or `get_history` the same way (`"arguments":{"id":"..."}`).
 
+### Deductions: decisions and inferences
+
+`assertions` is the general form of the change set's claims; `observations` is the slice 1 form and is still accepted as assertions of kind `observation`. Each assertion has a `kind` that never changes: `observation` (what was seen), `decision` (what was approved or intended) or `inference` (what was concluded). An observation cites evidence and is never derived. A decision or inference cites evidence, names in `derived_from` the assertions it was concluded from (refs of assertions in the same call, in any order, or ids of assertions in the area), or both; it needs at least one.
+
+A deduction starts with one `root_added` support event per distinct evidence root of its sources and of its own evidence: a root two sources share counts once, and an inherited root's event says which sources it came from (`inherited from <ids>`). With the service default configuration an inference needs a score of 2 to meet its threshold, so an inference whose sources rest on one root is stored, returned by `get_record` and `search` with `meets_threshold: false`, and earns more support only as any claim does: further distinct roots, verifications and outcomes. Reading it or recording the same conclusion again earns nothing. Deriving from an assertion in another area, from an unknown id, or in a loop is refused and nothing is written. When a source's support changes later, the deduction is not yet reassessed (FRB-52).
+
+```bash
+curl -s -u bob:froodbase-dev -H 'Content-Type: application/json' -H 'Accept: application/json, text/event-stream' \
+  -d '{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"contribute","arguments":{
+    "area":"demo","idempotency_key":"demo-2","rationale":"concluded during INC-1",
+    "assertions":[{"ref":"cause","kind":"inference","subject":"<entity id>","body_markdown":"The callback failure is caused by the 2.3 retry change","derived_from":["<observation id>","<observation id>"]}]}}}' \
+  http://127.0.0.1:8080/mcp
+```
+
+The same flow runs as `TestDeductionFromTwoObservations` in `internal/apitest`.
+
 ## Migrations
 
 Migration `00003_idempotency.sql` adds the per-caller idempotency keys of `contribute`.
@@ -180,11 +196,16 @@ Schema migrations are SQL files under `internal/store/migrations`, named `NNNNN_
 | Version | File | Creates |
 |---|---|---|
 | 1 | `00001_extensions.sql` | The `vector`, `pg_trgm` and `btree_gist` extensions |
-| 2 | `00002_records.sql` | The slice 1 record tables, the service role `froodbase_app` and its grants, row-level security on every table, the seeded service default support configuration | The migrations are embedded in `froodbase-api`, so `froodbase-api migrate` applies them wherever the binary runs and `froodbase-api migrate --status` lists them. Locally the Compose `migrate` service runs them before the api and dreamer start, and `make migrate` reruns them after you add a migration; in the cloud only the deployment pipeline runs them (`docs/planning/02-technical-requirements.md`, TR-92). Both server binaries open the database pool at startup and exit with a clear error if PostgreSQL is unreachable, so start the stack before running them from `bin/`.
+| 2 | `00002_records.sql` | The slice 1 record tables, the service role `froodbase_app` and its grants, row-level security on every table, the seeded service default support configuration |
+| 3 | `00003_idempotency.sql` | The per-caller idempotency keys of `contribute` |
+| 4 | `00004_index_state.sql` | The `index_state` projection bookkeeping and the staleness function the dreamer reports |
+| 5 | `00005_derivation.sql` | The append-only `derivation` table linking a deduction to its sources in the same area, with row-level security and its grants |
+
+The migrations are embedded in `froodbase-api`, so `froodbase-api migrate` applies them wherever the binary runs and `froodbase-api migrate --status` lists them. Locally the Compose `migrate` service runs them before the api and dreamer start, and `make migrate` reruns them after you add a migration; in the cloud only the deployment pipeline runs them (`docs/planning/02-technical-requirements.md`, TR-92). Both server binaries open the database pool at startup and exit with a clear error if PostgreSQL is unreachable, so start the stack before running them from `bin/`.
 
 ## Records: history, audit and per-area access control
 
-Migration `00002_records.sql` creates the slice 1 tables (`knowledge_area`, `entity`, `entity_name`, `assertion`, `evidence`, `claim_evidence`, `contribution`, `contribution_claims`, `revision`, `audit_event`, `support_event`, `support_config`), the service role `froodbase_app` (without a login when it does not exist yet; Compose and `storetest` give it one) and its grants, and enables row-level security on every one of them. The policies compare each row's `area_id` with `app.caller_areas`, a comma-separated list of area ids the service sets per transaction with `set_config('app.caller_areas', ..., true)` from the caller's grants (`store.Caller`); unset means no rows. `revision`, `audit_event` and `support_event` have insert and select policies only and no update or delete grant, so history is append-only at both levels. `support_config` holds the service default (`area_id` null, version `service-1`, the values of `domain.DefaultSupportConfig`) and each area's own versions.
+Migration `00002_records.sql` creates the slice 1 tables (`knowledge_area`, `entity`, `entity_name`, `assertion`, `evidence`, `claim_evidence`, `contribution`, `contribution_claims`, `revision`, `audit_event`, `support_event`, `support_config`), the service role `froodbase_app` (without a login when it does not exist yet; Compose and `storetest` give it one) and its grants, and enables row-level security on every one of them. The policies compare each row's `area_id` with `app.caller_areas`, a comma-separated list of area ids the service sets per transaction with `set_config('app.caller_areas', ..., true)` from the caller's grants (`store.Caller`); unset means no rows. Migration `00005_derivation.sql` adds `derivation` (derived id, source id, area, rationale, recorded time) on the same pattern; composite foreign keys keep both ends in the link's area. `revision`, `audit_event`, `support_event` and `derivation` have insert and select policies only and no update or delete grant, so history is append-only at both levels. `support_config` holds the service default (`area_id` null, version `service-1`, the values of `domain.DefaultSupportConfig`) and each area's own versions.
 
 Every write goes through `store.Pool`'s writer, which in one transaction inserts the records, a full JSON snapshot per record revision, an audit event per write, one `root_added` support event per distinct evidence root with the projected score, and the `index_record` job for the dreamer; a failure anywhere rolls all of it back. Record ids are UUIDs from `store.NewID`. Inspect what a write left behind from the Compose stack:
 

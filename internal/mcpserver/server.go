@@ -93,8 +93,11 @@ func New(version string, h Handlers) *mcp.Server {
 	if h.Contribute != nil {
 		mcp.AddTool(s, &mcp.Tool{
 			Name: ToolContribute,
-			Description: "Record findings in a knowledge area as one atomic change set: entities, observations about them and the shareable evidence (https sources with a revision) that supports each observation. " +
-				"Every record is active at once with the support its distinct evidence roots give it; there is no approval step. Reports, conversations and transcripts are never sent: contribute individual findings with their own citations. " +
+			Description: "Record findings in a knowledge area as one atomic change set: entities, assertions about them and the shareable evidence (https sources with a revision) behind them. " +
+				"Each assertion has a kind that never changes: observation (what was seen; cites evidence, never derived), decision (what was approved or intended) or inference (what was concluded). " +
+				"When you conclude something from records you have read, record it as an inference (or a decision) with derived_from naming those assertions (refs in this call or ids in the area), evidence of its own, or both: it starts with the distinct evidence roots of its sources and stays labelled derived. " +
+				"Deriving from another area, an unknown id or in a loop is refused. The observations list is the older form of assertions of kind observation. " +
+				"Every record is active at once with the support its distinct evidence roots give it; there is no approval step, and below the kind's threshold it is still stored and returned. Reports, conversations and transcripts are never sent: contribute individual findings with their own citations. " +
 				"Pass a fresh idempotency_key per change set; retrying with the same key returns the same result without writing again. The result lists every record written with its id, kind, lifecycle state and support: list those ids in your report.",
 			Annotations: &mcp.ToolAnnotations{IdempotentHint: true},
 		}, wrap(h.Contribute))
@@ -102,14 +105,14 @@ func New(version string, h Handlers) *mcp.Server {
 	if h.GetRecord != nil {
 		mcp.AddTool(s, &mcp.Tool{
 			Name:        ToolGetRecord,
-			Description: "Read one record (an entity, an observation or an evidence record) by id with its kind, lifecycle state, support, scope, validity, verification date and citations. Records outside your knowledge areas are reported as not found.",
+			Description: "Read one record (an entity, an assertion or an evidence record) by id with its kind, lifecycle state, support, scope, validity, verification date, citations and, for a deduction, derived: true with the ids it was derived_from. Records outside your knowledge areas are reported as not found.",
 			Annotations: &mcp.ToolAnnotations{ReadOnlyHint: true},
 		}, wrap(h.GetRecord))
 	}
 	if h.Search != nil {
 		mcp.AddTool(s, &mcp.Tool{
 			Name: ToolSearch,
-			Description: "Search the knowledge areas you can read by an entity name (exact or near-miss; a near-miss is a candidate for you to confirm, never resolved for you) or by words in observation bodies. " +
+			Description: "Search the knowledge areas you can read by an entity name (exact or near-miss; a near-miss is a candidate for you to confirm, never resolved for you) or by words in assertion bodies. " +
 				"Results carry kind, lifecycle state, support, scope, validity, verification date, citations and which channel matched. Nothing is reported about records you cannot read. Optional area limits the search to one area key.",
 			Annotations: &mcp.ToolAnnotations{ReadOnlyHint: true},
 		}, wrap(h.Search))
@@ -117,7 +120,7 @@ func New(version string, h Handlers) *mcp.Server {
 	if h.GetHistory != nil {
 		mcp.AddTool(s, &mcp.Tool{
 			Name:        ToolGetHistory,
-			Description: "Read a record's append-only history: every content revision with its actor, time and rationale, and for a claim its support events (distinct roots added, verifications, outcomes, challenges).",
+			Description: "Read a record's append-only history: every content revision with its actor, time and rationale, and for a claim its support events (distinct roots added, cited or inherited from its sources, verifications, outcomes, challenges) and the assertions it was derived from.",
 			Annotations: &mcp.ToolAnnotations{ReadOnlyHint: true},
 		}, wrap(h.GetHistory))
 	}

@@ -28,7 +28,7 @@ type Name struct {
 }
 
 // EntityInput is an entity to create. Ref is a name local to the call that
-// observations and the result use to refer to it.
+// assertions and the result use to refer to it.
 type EntityInput struct {
 	Ref   string `json:"ref"`
 	Type  string `json:"type"`
@@ -50,10 +50,30 @@ type EvidenceInput struct {
 	ObservedAt     *time.Time `json:"observed_at,omitempty"`
 }
 
-// ObservationInput is an observation to record about a subject entity
-// (a ref from this call or the id of an existing entity in the area), with
-// the refs or ids of the evidence that supports it. Validity dates are only
-// set when the contributor knows them; they are never inferred (TR-32).
+// AssertionInput is a claim to record about a subject entity (a ref from
+// this call or the id of an existing entity in the area). Kind is
+// observation (what was seen), decision (what was approved or intended) or
+// inference (what was concluded) and never changes (PR-03). Evidence lists
+// the refs or ids of the evidence it cites; DerivedFrom lists the assertions
+// it was derived from, as refs of assertions in this call or ids of
+// assertions in the area (PR-13). An observation cites evidence and is never
+// derived; a decision or inference cites evidence, is derived, or both.
+// Validity dates are only set when the contributor knows them; they are
+// never inferred (TR-32).
+type AssertionInput struct {
+	Ref          string     `json:"ref"`
+	Kind         string     `json:"kind"`
+	Subject      string     `json:"subject"`
+	BodyMarkdown string     `json:"body_markdown"`
+	Scope        *Scope     `json:"scope,omitempty"`
+	ValidFrom    *time.Time `json:"valid_from,omitempty"`
+	ValidTo      *time.Time `json:"valid_to,omitempty"`
+	Evidence     []string   `json:"evidence,omitempty"`
+	DerivedFrom  []string   `json:"derived_from,omitempty"`
+}
+
+// ObservationInput is the slice 1 form of an observation, kept so existing
+// callers keep working: it is an AssertionInput of kind observation.
 type ObservationInput struct {
 	Ref          string     `json:"ref"`
 	Subject      string     `json:"subject"`
@@ -65,6 +85,8 @@ type ObservationInput struct {
 }
 
 // ContributeInput is one atomic change set for one knowledge area (TR-60).
+// Assertions is the general form; Observations is kept for existing callers
+// and is written as assertions of kind observation, before Assertions.
 type ContributeInput struct {
 	Area             string             `json:"area"`
 	IdempotencyKey   string             `json:"idempotency_key"`
@@ -72,6 +94,7 @@ type ContributeInput struct {
 	Rationale        string             `json:"rationale,omitempty"`
 	Entities         []EntityInput      `json:"entities,omitempty"`
 	Evidence         []EvidenceInput    `json:"evidence,omitempty"`
+	Assertions       []AssertionInput   `json:"assertions,omitempty"`
 	Observations     []ObservationInput `json:"observations,omitempty"`
 }
 
@@ -154,6 +177,8 @@ type Record struct {
 	NeedsReconsideration bool        `json:"needs_reconsideration,omitempty"`
 	Subject              string      `json:"subject,omitempty"`
 	BodyMarkdown         string      `json:"body_markdown,omitempty"`
+	Derived              bool        `json:"derived,omitempty"`
+	DerivedFrom          []string    `json:"derived_from,omitempty"`
 	Citations            []Citation  `json:"citations,omitempty"`
 	Entity               *EntityView `json:"entity,omitempty"`
 	Evidence             *Citation   `json:"evidence,omitempty"`
@@ -187,13 +212,23 @@ type SupportEvent struct {
 	At              time.Time `json:"at"`
 }
 
-// HistoryOutput is a record's revisions and, for a claim, its support events.
+// Derivation is a link from a deduction to an assertion it was derived
+// from (PR-13).
+type Derivation struct {
+	SourceID   string    `json:"source_id"`
+	Rationale  string    `json:"rationale,omitempty"`
+	RecordedAt time.Time `json:"recorded_at"`
+}
+
+// HistoryOutput is a record's revisions and, for a claim, its support events
+// and the assertions it was derived from.
 type HistoryOutput struct {
 	ID            string         `json:"id"`
 	RecordType    string         `json:"record_type"`
 	Area          string         `json:"area"`
 	Revisions     []Revision     `json:"revisions"`
 	SupportEvents []SupportEvent `json:"support_events,omitempty"`
+	Derivations   []Derivation   `json:"derivations,omitempty"`
 }
 
 // SearchInput is a search over the caller's knowledge areas (TR-50). Area,

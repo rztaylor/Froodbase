@@ -10,5 +10,6 @@
 // machinery. It carries no behaviour beyond trivial helpers and imports only
 // the standard library. Every record returned carries kind, lifecycle state,
 // support, scope, validity, verification date and citations as TR-14
-// requires, where the record type has them.
+// requires, where the record type has them, and a derived claim names the
+// assertions it was derived from (PR-13).
 package wire

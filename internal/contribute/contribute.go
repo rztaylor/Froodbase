@@ -168,37 +168,52 @@ func (s *Service) build(ctx context.Context, caller store.Caller, ac *authz.Cont
 		ids[ev.Ref] = id
 		refs[id] = ev.Ref
 	}
-	for _, o := range in.Observations {
-		subject, ok := ids[o.Subject]
+	claims := assertionsOf(in)
+	for _, a := range claims {
+		ids[a.Ref] = domain.ID(s.newID()) // assigned up front: derived_from may name a later ref
+	}
+	for _, ai := range claims {
+		id := ids[ai.Ref]
+		subject, ok := ids[ai.Subject]
 		if !ok {
-			subject = domain.ID(o.Subject)
+			subject = domain.ID(ai.Subject)
 			if _, err := s.pool.GetEntity(ctx, caller, subject); err != nil {
-				return store.Contribution{}, nil, fmt.Errorf("%w: observation %q: subject %q is neither a ref in this call nor an entity in area %q", ErrInvalidInput, o.Ref, o.Subject, in.Area)
+				return store.Contribution{}, nil, fmt.Errorf("%w: %s %q: subject %q is neither a ref in this call nor an entity in the area", ErrInvalidInput, ai.Kind, ai.Ref, ai.Subject)
 			}
 		}
-		id := domain.ID(s.newID())
 		scope := domain.Scope{}
-		if o.Scope != nil {
-			scope = scopeFromWire(*o.Scope)
+		if ai.Scope != nil {
+			scope = scopeFromWire(*ai.Scope)
 		}
-		a, err := domain.NewObservation(id, areaID, subject, o.BodyMarkdown, scope, now)
+		a, err := domain.NewAssertion(domain.EpistemicKind(ai.Kind), id, areaID, subject, ai.BodyMarkdown, scope, now)
 		if err != nil {
-			return store.Contribution{}, nil, fmt.Errorf("%w: observation %q: %v", ErrInvalidInput, o.Ref, err)
+			return store.Contribution{}, nil, fmt.Errorf("%w: %s %q: %v", ErrInvalidInput, ai.Kind, ai.Ref, err)
 		}
-		a.ValidFrom, a.ValidTo = o.ValidFrom, o.ValidTo
+		a.ValidFrom, a.ValidTo = ai.ValidFrom, ai.ValidTo
 		if err := a.Validate(); err != nil {
-			return store.Contribution{}, nil, fmt.Errorf("%w: observation %q: %v", ErrInvalidInput, o.Ref, err)
+			return store.Contribution{}, nil, fmt.Errorf("%w: %s %q: %v", ErrInvalidInput, ai.Kind, ai.Ref, err)
 		}
-		for _, ref := range o.Evidence {
+		for _, ref := range ai.Evidence {
 			evID, ok := ids[ref]
 			if !ok {
 				evID = domain.ID(ref) // existing evidence in the area; the store resolves it
 			}
 			c.ClaimEvidence[id] = append(c.ClaimEvidence[id], evID)
 		}
+		linked := map[domain.ID]bool{}
+		for _, ref := range ai.DerivedFrom {
+			src, ok := ids[ref]
+			if !ok {
+				src = domain.ID(ref) // an existing assertion in the area; the store checks it
+			}
+			if linked[src] {
+				continue
+			}
+			linked[src] = true
+			c.Derivations = append(c.Derivations, domain.Derivation{DerivedID: id, SourceID: src, AreaID: areaID, Rationale: in.Rationale, RecordedAt: now})
+		}
 		c.Assertions = append(c.Assertions, a)
-		ids[o.Ref] = id
-		refs[id] = o.Ref
+		refs[id] = ai.Ref
 	}
 	return c, refs, nil
 }
@@ -214,11 +229,15 @@ func (s *Service) output(ctx context.Context, caller store.Caller, areaID domain
 	for _, w := range res.Written {
 		rec := wire.Written{Ref: w.Ref, ID: string(w.ID), RecordType: w.RecordType, LifecycleState: store.LifecycleActive}
 		if w.RecordType == store.RecordAssertion {
-			rec.Kind = string(domain.KindObservation)
+			kind := domain.EpistemicKind(w.Kind)
+			if kind == "" {
+				kind = domain.KindObservation // results stored before kinds were recorded held observations only
+			}
+			rec.Kind = string(kind)
 			score := res.Scores[w.ID]
 			rec.Support = &wire.Support{
 				Score: score, ConfigVersion: res.ConfigVersion, Roots: res.Roots[w.ID], Events: res.Roots[w.ID],
-				MeetsThreshold: cfg.MeetsThreshold(domain.KindObservation, score),
+				MeetsThreshold: cfg.MeetsThreshold(kind, score),
 			}
 		}
 		if w.RecordType == store.RecordEvidence {
@@ -236,7 +255,8 @@ func validateInput(in wire.ContributeInput) error {
 	if strings.TrimSpace(in.IdempotencyKey) == "" {
 		return fmt.Errorf("%w: idempotency_key is required", ErrInvalidInput)
 	}
-	if len(in.Entities)+len(in.Evidence)+len(in.Observations) == 0 {
+	claims := assertionsOf(in)
+	if len(in.Entities)+len(in.Evidence)+len(claims) == 0 {
 		return fmt.Errorf("%w: nothing to contribute", ErrInvalidInput)
 	}
 	seen := map[string]bool{}
@@ -263,18 +283,64 @@ func validateInput(in wire.ContributeInput) error {
 			return err
 		}
 	}
-	for _, o := range in.Observations {
-		if err := ref("observation", o.Ref); err != nil {
+	otherRefs := make(map[string]bool, len(seen))
+	for r := range seen {
+		otherRefs[r] = true
+	}
+	for _, a := range claims {
+		if err := ref("assertion", a.Ref); err != nil {
 			return err
 		}
-		if strings.TrimSpace(o.Subject) == "" {
-			return fmt.Errorf("%w: observation %q has no subject", ErrInvalidInput, o.Ref)
+	}
+	ids := make([]domain.ID, 0, len(claims))
+	var links []domain.Derivation
+	for _, a := range claims {
+		kind, err := domain.ParseEpistemicKind(a.Kind)
+		if err != nil {
+			return fmt.Errorf("%w: assertion %q: kind %q is not observation, decision or inference", ErrInvalidInput, a.Ref, a.Kind)
 		}
-		if len(o.Evidence) == 0 {
-			return fmt.Errorf("%w: observation %q cites no evidence; every claim needs shareable evidence of its own (PR-43)", ErrInvalidInput, o.Ref)
+		if strings.TrimSpace(a.Subject) == "" {
+			return fmt.Errorf("%w: %s %q has no subject", ErrInvalidInput, kind, a.Ref)
+		}
+		switch err := kind.CheckGrounds(len(a.Evidence), len(a.DerivedFrom)); {
+		case errors.Is(err, domain.ErrNoEvidence):
+			return fmt.Errorf("%w: observation %q cites no evidence; every claim needs shareable evidence of its own (PR-43)", ErrInvalidInput, a.Ref)
+		case errors.Is(err, domain.ErrObservationDerived):
+			return fmt.Errorf("%w: observation %q names derived_from; an observation is what was seen, so record what was concluded as an inference (or a decision) instead", ErrInvalidInput, a.Ref)
+		case errors.Is(err, domain.ErrNoGrounds):
+			return fmt.Errorf("%w: %s %q cites no evidence and names no derived_from; cite evidence, name the assertions it was derived from, or both", ErrInvalidInput, kind, a.Ref)
+		case err != nil:
+			return fmt.Errorf("%w: %s %q: %v", ErrInvalidInput, kind, a.Ref, err)
+		}
+		ids = append(ids, domain.ID(a.Ref))
+		for _, src := range a.DerivedFrom {
+			if otherRefs[src] {
+				return fmt.Errorf("%w: %s %q is derived from %q, which is an entity or evidence ref; derive from assertions and cite evidence under evidence", ErrInvalidInput, kind, a.Ref, src)
+			}
+			if seen[src] {
+				links = append(links, domain.Derivation{DerivedID: domain.ID(a.Ref), SourceID: domain.ID(src)})
+			} else if _, err := uuid.Parse(src); err != nil {
+				return fmt.Errorf("%w: %s %q is derived from %q, which is neither the ref of an assertion in this call nor an assertion id", ErrInvalidInput, kind, a.Ref, src)
+			}
 		}
 	}
+	if _, err := domain.OrderByDerivation(ids, links); err != nil {
+		return fmt.Errorf("%w: derived_from refs loop (%v); a record cannot be derived, directly or through others, from itself", ErrInvalidInput, err)
+	}
 	return nil
+}
+
+// assertionsOf returns every assertion of the call: the slice 1
+// observations as assertions of kind observation, then the assertions.
+func assertionsOf(in wire.ContributeInput) []wire.AssertionInput {
+	out := make([]wire.AssertionInput, 0, len(in.Observations)+len(in.Assertions))
+	for _, o := range in.Observations {
+		out = append(out, wire.AssertionInput{
+			Ref: o.Ref, Kind: string(domain.KindObservation), Subject: o.Subject, BodyMarkdown: o.BodyMarkdown, Scope: o.Scope,
+			ValidFrom: o.ValidFrom, ValidTo: o.ValidTo, Evidence: o.Evidence,
+		})
+	}
+	return append(out, in.Assertions...)
 }
 
 // requestHash fingerprints the change set without its key, so the same key
@@ -290,8 +356,12 @@ func mapStoreErr(err error) error {
 	switch {
 	case errors.Is(err, store.ErrDuplicateEvidence):
 		return fmt.Errorf("%w: the area already holds evidence for that source, revision and locator; cite its id instead of recording it again", ErrInvalidInput)
+	case errors.Is(err, store.ErrCrossArea):
+		return fmt.Errorf("%w: derived_from names an assertion in another knowledge area; derive only from assertions in the area you contribute to (%v)", ErrInvalidInput, err)
+	case errors.Is(err, domain.ErrDerivationCycle):
+		return fmt.Errorf("%w: %v", ErrInvalidInput, err)
 	case errors.Is(err, store.ErrNotFound):
-		return fmt.Errorf("%w: a referenced record was not found in the area", ErrInvalidInput)
+		return fmt.Errorf("%w: a referenced record was not found in the area (%v)", ErrInvalidInput, err)
 	}
 	return err
 }

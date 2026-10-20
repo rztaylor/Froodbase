@@ -22,6 +22,9 @@ var (
 	// ErrDuplicateEvidence means the area already holds evidence for that
 	// source URI, revision and locator; link the existing record instead.
 	ErrDuplicateEvidence = errors.New("store: evidence for this source already exists in the area")
+	// ErrCrossArea means a record links a record in another area, for
+	// example a deduction derived from an assertion outside its own area.
+	ErrCrossArea = errors.New("store: a record may only link records in its own area")
 	// ErrNoCaller means the caller has no user id.
 	ErrNoCaller = errors.New("store: caller has no user id")
 )

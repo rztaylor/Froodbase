@@ -35,6 +35,20 @@ var (
 	ErrUnknownEntityType = errors.New("domain: unknown entity type")
 	// ErrUnknownEpistemicKind means the kind is not observation, decision or inference.
 	ErrUnknownEpistemicKind = errors.New("domain: unknown epistemic kind")
+	// ErrNoEvidence means an observation cites no evidence of its own (PR-43).
+	ErrNoEvidence = errors.New("domain: an observation must cite evidence of its own")
+	// ErrObservationDerived means an observation names records it was
+	// derived from; what was seen is not deduced, so record an inference.
+	ErrObservationDerived = errors.New("domain: an observation is not derived from other records; record an inference or a decision")
+	// ErrNoGrounds means a decision or inference neither cites evidence nor
+	// names a record it was derived from.
+	ErrNoGrounds = errors.New("domain: a decision or inference must cite evidence, name the records it was derived from, or both")
+	// ErrDerivationCycle means a record is derived, directly or through
+	// others, from itself.
+	ErrDerivationCycle = errors.New("domain: derivation cycle")
+	// ErrUnknownDerived means a derivation link names a derived record that
+	// is not among the records being written.
+	ErrUnknownDerived = errors.New("domain: derivation names a derived record that is not being written")
 	// ErrUnknownSourceKind means the evidence source kind is not a documented shared kind (TR-61).
 	ErrUnknownSourceKind = errors.New("domain: unknown source kind")
 	// ErrUnknownAccessClass means the access class is not restricted, area or organisation.

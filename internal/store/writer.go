@@ -33,13 +33,16 @@ const (
 // Contribution is one contribute call to write: the provenance episode and
 // the records it asserts. Every record must carry the contribution's area.
 // ClaimEvidence links each assertion to evidence by id, either records in
-// Evidence or evidence the area already holds.
+// Evidence or evidence the area already holds. Derivations link a deduction
+// in Assertions to the assertions it was derived from: others in
+// Assertions, in any order, or assertions the area already holds.
 type Contribution struct {
 	Contribution  domain.Contribution
 	Entities      []*domain.Entity
 	Assertions    []domain.Assertion
 	Evidence      []domain.Evidence
 	ClaimEvidence map[domain.ID][]domain.ID
+	Derivations   []domain.Derivation
 	Rationale     string
 	// Idempotency, when set, stores the result under the caller's key in the
 	// same transaction (TR-15).
@@ -56,7 +59,8 @@ type ContributionResult struct {
 	ContributionID domain.ID `json:"contribution_id"`
 	// Scores is the projected support score of every assertion written.
 	Scores map[domain.ID]float64 `json:"scores"`
-	// Roots is the number of distinct evidence roots behind each assertion.
+	// Roots is the number of distinct evidence roots behind each assertion,
+	// cited directly or inherited from its sources.
 	Roots map[domain.ID]int `json:"roots"`
 	// ConfigVersion is the support configuration the scores were projected under.
 	ConfigVersion string `json:"config_version"`
@@ -71,6 +75,7 @@ type WrittenRecord struct {
 	Ref        string    `json:"ref,omitempty"`
 	ID         domain.ID `json:"id"`
 	RecordType string    `json:"record_type"`
+	Kind       string    `json:"kind,omitempty"` // the epistemic kind of an assertion
 }
 
 // CreateArea creates a knowledge area and audits it. The caller's areas for
@@ -92,17 +97,25 @@ func (p *Pool) CreateArea(ctx context.Context, caller Caller, area domain.Area) 
 }
 
 // Contribute writes a contribution: entities with their names, evidence,
-// assertions linked to their evidence, the contribution and its claims, a
-// revision and an audit event per record, one root_added support event per
-// distinct evidence root of each assertion with the score projected under
-// the area's current support configuration (TR-29, TR-43), and an index job
-// per entity and assertion. Every assertion enters active (PR-40).
+// assertions linked to their evidence and to the assertions they were
+// derived from, the contribution and its claims, a revision and an audit
+// event per record, one root_added support event per distinct evidence root
+// of each assertion, cited directly or inherited from its sources, with the
+// score projected under the area's current support configuration (TR-29,
+// TR-43), and an index job per entity and assertion. Assertions are written
+// sources first. Every assertion enters active (PR-40). A source that is
+// unknown (ErrNotFound), in another area (ErrCrossArea) or part of a cycle
+// (domain.ErrDerivationCycle) refuses the whole contribution.
 func (p *Pool) Contribute(ctx context.Context, caller Caller, c Contribution) (*ContributionResult, error) {
 	if err := c.validate(caller); err != nil {
 		return nil, err
 	}
+	order, assertions, sources, err := c.assertionOrder()
+	if err != nil {
+		return nil, err
+	}
 	res := &ContributionResult{ContributionID: c.Contribution.ID, Scores: make(map[domain.ID]float64, len(c.Assertions)), Roots: make(map[domain.ID]int, len(c.Assertions))}
-	err := p.inTx(ctx, caller, func(ctx context.Context, tx pgx.Tx, q *gen.Queries) error {
+	err = p.inTx(ctx, caller, func(ctx context.Context, tx pgx.Tx, q *gen.Queries) error {
 		now := p.now().UTC()
 		area := string(c.Contribution.AreaID)
 		cfg, err := p.currentSupportConfig(ctx, q, area)
@@ -125,20 +138,21 @@ func (p *Pool) Contribute(ctx context.Context, caller Caller, c Contribution) (*
 			}
 			res.Written = append(res.Written, WrittenRecord{Ref: c.Refs[e.ID()], ID: e.ID(), RecordType: RecordEntity})
 		}
-		byID := make(map[domain.ID]domain.Evidence, len(c.Evidence))
+		written := make(map[domain.ID]domain.Evidence, len(c.Evidence))
 		for _, ev := range c.Evidence {
 			if err := p.insertEvidence(ctx, q, caller, ev, c.Rationale, now); err != nil {
 				return err
 			}
-			byID[ev.ID] = ev
+			written[ev.ID] = ev
 			res.Written = append(res.Written, WrittenRecord{Ref: c.Refs[ev.ID], ID: ev.ID, RecordType: RecordEvidence})
 		}
-		for _, a := range c.Assertions {
-			evidence, err := p.resolveEvidence(ctx, q, byID, c.ClaimEvidence[a.ID])
+		for _, id := range order {
+			a := assertions[id]
+			evidence, err := p.resolveEvidence(ctx, q, written, c.ClaimEvidence[a.ID])
 			if err != nil {
 				return err
 			}
-			score, err := p.insertAssertion(ctx, tx, q, caller, a, evidence, cfg, c.Rationale, now)
+			score, roots, err := p.insertAssertion(ctx, tx, q, caller, a, evidence, sources[id], assertions, cfg, c.Rationale, now)
 			if err != nil {
 				return err
 			}
@@ -146,8 +160,8 @@ func (p *Pool) Contribute(ctx context.Context, caller Caller, c Contribution) (*
 				return err
 			}
 			res.Scores[a.ID] = score
-			res.Roots[a.ID] = len(domain.DistinctRoots(evidence))
-			res.Written = append(res.Written, WrittenRecord{Ref: c.Refs[a.ID], ID: a.ID, RecordType: RecordAssertion})
+			res.Roots[a.ID] = roots
+			res.Written = append(res.Written, WrittenRecord{Ref: c.Refs[a.ID], ID: a.ID, RecordType: RecordAssertion, Kind: string(a.Kind)})
 		}
 		if c.Idempotency != nil {
 			return storeIdempotent(ctx, q, caller, *c.Idempotency, res, now)
@@ -195,7 +209,35 @@ func (c Contribution) validate(caller Caller) error {
 			return fmt.Errorf("assertion %s: %w", a.ID, ErrForbidden)
 		}
 	}
+	for _, d := range c.Derivations {
+		if err := d.Validate(); err != nil {
+			return err
+		}
+		if d.AreaID != area {
+			return fmt.Errorf("derivation of %s: %w", d.DerivedID, ErrForbidden)
+		}
+	}
 	return nil
+}
+
+// assertionOrder returns the assertion ids sources first, the assertions by
+// id and each deduction's derivation links.
+func (c Contribution) assertionOrder() ([]domain.ID, map[domain.ID]domain.Assertion, map[domain.ID][]domain.Derivation, error) {
+	ids := make([]domain.ID, 0, len(c.Assertions))
+	byID := make(map[domain.ID]domain.Assertion, len(c.Assertions))
+	for _, a := range c.Assertions {
+		ids = append(ids, a.ID)
+		byID[a.ID] = a
+	}
+	order, err := domain.OrderByDerivation(ids, c.Derivations)
+	if err != nil {
+		return nil, nil, nil, err
+	}
+	sources := make(map[domain.ID][]domain.Derivation, len(c.Derivations))
+	for _, d := range c.Derivations {
+		sources[d.DerivedID] = append(sources[d.DerivedID], d)
+	}
+	return order, byID, sources, nil
 }
 
 // UpdateEntity replaces the entity's names, based on expectedRevision, and
@@ -487,42 +529,106 @@ func (p *Pool) resolveEvidence(ctx context.Context, q *gen.Queries, written map[
 	return out, nil
 }
 
-func (p *Pool) insertAssertion(ctx context.Context, tx pgx.Tx, q *gen.Queries, caller Caller, a domain.Assertion, evidence []domain.Evidence, cfg domain.SupportConfig, rationale string, now time.Time) (float64, error) {
+// insertAssertion writes an assertion, its evidence and derivation links,
+// one root_added event per distinct root it cites or inherits and its
+// revision. A source must be an assertion written earlier in this
+// contribution (in assertions) or one the area already holds. It returns the
+// score and the number of distinct roots.
+func (p *Pool) insertAssertion(ctx context.Context, tx pgx.Tx, q *gen.Queries, caller Caller, a domain.Assertion, evidence []domain.Evidence,
+	derivations []domain.Derivation, assertions map[domain.ID]domain.Assertion, cfg domain.SupportConfig, rationale string, now time.Time) (float64, int, error) {
 	id := string(a.ID)
 	if err := q.InsertAssertion(ctx, gen.InsertAssertionParams{
 		ID: id, AreaID: string(a.AreaID), SubjectEntityID: string(a.SubjectEntityID), EpistemicKind: string(a.Kind), BodyMarkdown: a.BodyMarkdown,
 		Scope: scopeBytes(a.Scope), ValidFrom: utcPtr(a.ValidFrom), ValidTo: utcPtr(a.ValidTo), RecordedAt: a.RecordedAt.UTC(), VerifiedAt: utcPtr(a.VerifiedAt),
 		ReviewDueAt: utcPtr(a.ReviewDueAt), LifecycleState: LifecycleActive, SupportScore: 0, SupportConfigVersion: cfg.Version, UpdatedAt: now,
 	}); err != nil {
-		return 0, err
+		return 0, 0, err
 	}
 	cur, err := q.GetAssertion(ctx, id)
 	if err != nil {
-		return 0, err
+		return 0, 0, err
 	}
-	score, err := p.linkEvidence(ctx, q, caller, cur, evidence, cfg, rationale, now)
+	sourceRoots, err := p.insertDerivations(ctx, q, cur, derivations, assertions)
 	if err != nil {
-		return 0, err
+		return 0, 0, err
+	}
+	if err := insertClaimEvidence(ctx, q, cur, evidence); err != nil {
+		return 0, 0, err
+	}
+	origins := domain.DerivedRoots(evidence, sourceRoots)
+	score, err := p.addRoots(ctx, q, caller, cur, origins, cfg, rationale, now)
+	if err != nil {
+		return 0, 0, err
 	}
 	snap, err := assertionSnapshotBytes(AssertionRecord{Assertion: a, LifecycleState: LifecycleActive, Revision: 1})
 	if err != nil {
-		return 0, err
+		return 0, 0, err
 	}
-	return score, p.recordChange(ctx, tx, q, caller, change{
+	return score, len(origins), p.recordChange(ctx, tx, q, caller, change{
 		recordID: id, recordType: RecordAssertion, areaID: string(a.AreaID), revision: 1,
 		snapshot: snap, audit: AuditAssertionCreated, rationale: rationale, index: true,
 	}, now)
+}
+
+// insertDerivations checks each source (written earlier in this
+// contribution, or held by the area) and writes the links. It returns each
+// source's distinct roots: the roots of its root_added events, which already
+// include whatever the source itself inherited.
+func (p *Pool) insertDerivations(ctx context.Context, q *gen.Queries, cur gen.GetAssertionRow, derivations []domain.Derivation, assertions map[domain.ID]domain.Assertion) (map[domain.ID][]domain.ID, error) {
+	if len(derivations) == 0 {
+		return nil, nil
+	}
+	out := make(map[domain.ID][]domain.ID, len(derivations))
+	for _, d := range derivations {
+		if _, ok := assertions[d.SourceID]; !ok {
+			src, err := q.GetAssertion(ctx, string(d.SourceID))
+			if err != nil {
+				return nil, fmt.Errorf("%s derived from %s: %w", cur.ID, d.SourceID, mapErr(err))
+			}
+			if src.AreaID != cur.AreaID {
+				return nil, fmt.Errorf("%s derived from %s: %w", cur.ID, d.SourceID, ErrCrossArea)
+			}
+		}
+		if err := q.InsertDerivation(ctx, gen.InsertDerivationParams{
+			DerivedID: cur.ID, SourceID: string(d.SourceID), AreaID: cur.AreaID, Rationale: d.Rationale, RecordedAt: d.RecordedAt.UTC(),
+		}); err != nil {
+			return nil, err
+		}
+		roots, err := q.ListSupportRoots(ctx, string(d.SourceID))
+		if err != nil {
+			return nil, err
+		}
+		for _, r := range roots {
+			out[d.SourceID] = append(out[d.SourceID], domain.ID(r))
+		}
+	}
+	return out, nil
 }
 
 // linkEvidence links evidence to the assertion, appends a root_added event
 // for each root the claim has not seen, re-projects the score from every
 // event under cfg and stores it. Idempotent for evidence already linked.
 func (p *Pool) linkEvidence(ctx context.Context, q *gen.Queries, caller Caller, cur gen.GetAssertionRow, evidence []domain.Evidence, cfg domain.SupportConfig, rationale string, now time.Time) (float64, error) {
+	if err := insertClaimEvidence(ctx, q, cur, evidence); err != nil {
+		return 0, err
+	}
+	return p.addRoots(ctx, q, caller, cur, domain.DerivedRoots(evidence, nil), cfg, rationale, now)
+}
+
+func insertClaimEvidence(ctx context.Context, q *gen.Queries, cur gen.GetAssertionRow, evidence []domain.Evidence) error {
 	for _, ev := range evidence {
 		if err := q.InsertClaimEvidence(ctx, gen.InsertClaimEvidenceParams{ClaimID: cur.ID, EvidenceID: string(ev.ID), AreaID: cur.AreaID}); err != nil {
-			return 0, err
+			return err
 		}
 	}
+	return nil
+}
+
+// addRoots appends a root_added event for each root the claim has not seen,
+// with the rationale its origin gives (the contribution's for a root cited
+// directly, the sources for one inherited), re-projects the score from every
+// event under cfg and stores it.
+func (p *Pool) addRoots(ctx context.Context, q *gen.Queries, caller Caller, cur gen.GetAssertionRow, origins []domain.RootOrigin, cfg domain.SupportConfig, rationale string, now time.Time) (float64, error) {
 	known, err := q.ListSupportRoots(ctx, cur.ID)
 	if err != nil {
 		return 0, err
@@ -535,20 +641,20 @@ func (p *Pool) linkEvidence(ctx context.Context, q *gen.Queries, caller Caller, 
 	if err != nil {
 		return 0, err
 	}
-	for _, root := range domain.DistinctRoots(evidence) {
-		if seen[root] {
+	for _, o := range origins {
+		if seen[o.Root] {
 			continue
 		}
 		e := domain.SupportEvent{
-			Type: domain.SupportRootAdded, EvidenceRootIDs: []domain.ID{root}, Scope: scope, ActorUserID: domain.ID(caller.UserID),
-			ActorAgentID: domain.ID(caller.AgentID), ConfigVersion: cfg.Version, Rationale: rationale, At: now,
+			Type: domain.SupportRootAdded, EvidenceRootIDs: []domain.ID{o.Root}, Scope: scope, ActorUserID: domain.ID(caller.UserID),
+			ActorAgentID: domain.ID(caller.AgentID), ConfigVersion: cfg.Version, Rationale: o.Rationale(rationale), At: now,
 		}
 		if err := e.Validate(); err != nil {
 			return 0, err
 		}
 		if err := q.InsertSupportEvent(ctx, gen.InsertSupportEventParams{
-			RecordID: cur.ID, AreaID: cur.AreaID, EventType: string(e.Type), EvidenceRootIds: []string{string(root)}, Scope: scopeBytes(scope),
-			ActorUserID: optional(caller.UserID), ActorAgentID: caller.agentID(), JobName: nil, ConfigVersion: cfg.Version, Rationale: rationale, At: now,
+			RecordID: cur.ID, AreaID: cur.AreaID, EventType: string(e.Type), EvidenceRootIds: []string{string(o.Root)}, Scope: scopeBytes(scope),
+			ActorUserID: optional(caller.UserID), ActorAgentID: caller.agentID(), JobName: nil, ConfigVersion: cfg.Version, Rationale: e.Rationale, At: now,
 		}); err != nil {
 			return 0, err
 		}

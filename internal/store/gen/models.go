@@ -66,6 +66,14 @@ type ContributionClaim struct {
 	AreaID         string
 }
 
+type Derivation struct {
+	DerivedID  string
+	SourceID   string
+	AreaID     string
+	Rationale  string
+	RecordedAt time.Time
+}
+
 type Entity struct {
 	ID             string
 	AreaID         string
