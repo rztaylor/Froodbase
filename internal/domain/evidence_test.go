@@ -21,7 +21,6 @@ func TestEvidenceValidate(t *testing.T) {
 		{"ticket", shared(SourceTicket, "https://dev.azure.com/org/project/_workitems/edit/123"), nil},
 		{"telemetry query", shared(SourceTelemetryQuery, "https://portal.azure.com/#blade/Microsoft_Azure_Monitoring_Logs/LogsBlade/query/abc"), nil},
 		{"document", shared(SourceDocument, "https://contoso.sharepoint.com/sites/eng/doc.docx"), nil},
-		{"report revision", shared(SourceReportRevision, "froodbase://report-revisions/7f3a"), nil},
 
 		// Local sources are not shareable citations (PR-11).
 		{"file scheme", shared(SourceDocument, "file:///Users/robert/reports/incident.md"), ErrLocalSource},
@@ -37,15 +36,16 @@ func TestEvidenceValidate(t *testing.T) {
 		{"http not https", shared(SourceRepository, "http://github.com/rztaylor/Froodbase"), ErrURINotAllowed},
 		{"ftp", shared(SourceDocument, "ftp://files.example.com/doc.pdf"), ErrURINotAllowed},
 		{"bare host", shared(SourceDocument, "https://"), ErrURINotAllowed},
-		{"report revision as https", shared(SourceReportRevision, "https://example.com/report/1"), ErrURINotAllowed},
 		{"froodbase uri for a ticket", shared(SourceTicket, "froodbase://report-revisions/7f3a"), ErrURINotAllowed},
-		{"report revision without id", shared(SourceReportRevision, "froodbase://report-revisions/"), ErrURINotAllowed},
-		{"froodbase wrong collection", shared(SourceReportRevision, "froodbase://entities/7f3a"), ErrURINotAllowed},
+		{"froodbase uri for a document", shared(SourceDocument, "froodbase://report-revisions/7f3a"), ErrURINotAllowed},
+		{"froodbase uri for a repository", shared(SourceRepository, "froodbase://entities/7f3a"), ErrURINotAllowed},
 		{"empty uri", shared(SourceDocument, ""), ErrURINotAllowed},
 		{"unparseable", shared(SourceDocument, "https://exa mple.com/%zz"), ErrURINotAllowed},
 
 		// Unknown kinds and missing fields.
 		{"unknown kind", shared("email", "https://mail.example.com/1"), ErrUnknownSourceKind},
+		{"removed report_revision kind", shared("report_revision", "froodbase://report-revisions/7f3a"), ErrUnknownSourceKind},
+		{"removed report_revision kind with https", shared("report_revision", "https://example.com/report/1"), ErrUnknownSourceKind},
 		{"empty kind", shared("", "https://example.com/1"), ErrUnknownSourceKind},
 		{"unknown access class", func() Evidence {
 			e := shared(SourceDocument, "https://example.com/doc")
@@ -57,11 +57,6 @@ func TestEvidenceValidate(t *testing.T) {
 			e.SourceRevision = " "
 			return e
 		}(), ErrNoRevision},
-		{"report revision needs no separate revision", func() Evidence {
-			e := shared(SourceReportRevision, "froodbase://report-revisions/7f3a")
-			e.SourceRevision = ""
-			return e
-		}(), nil},
 		{"empty id", func() Evidence {
 			e := shared(SourceDocument, "https://example.com/doc")
 			e.ID = ""
@@ -84,15 +79,15 @@ func TestEvidenceValidate(t *testing.T) {
 
 func TestParseSourceKind(t *testing.T) {
 	kinds := SourceKinds()
-	if len(kinds) != 5 {
-		t.Fatalf("SourceKinds() = %v, want five documented kinds", kinds)
+	if len(kinds) != 4 {
+		t.Fatalf("SourceKinds() = %v, want four documented kinds", kinds)
 	}
 	for _, k := range kinds {
 		if got, err := ParseSourceKind(string(k)); err != nil || got != k {
 			t.Errorf("ParseSourceKind(%q) = %q, %v", k, got, err)
 		}
 	}
-	for _, s := range []string{"", "Repository", "email", "report"} {
+	for _, s := range []string{"", "Repository", "email", "report", "report_revision"} {
 		if _, err := ParseSourceKind(s); !errors.Is(err, ErrUnknownSourceKind) {
 			t.Errorf("ParseSourceKind(%q) = %v, want ErrUnknownSourceKind", s, err)
 		}
