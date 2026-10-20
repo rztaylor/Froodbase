@@ -5,7 +5,8 @@
 //
 // It owns the shaping of records into the wire types every tool returns
 // (TR-14): kind, lifecycle state, support with its counts and threshold
-// verdict, scope, validity, verification date and citations. Authorisation
+// verdict, scope, validity, verification date, citations and, for a
+// deduction, the derived flag and its sources (PR-13). Authorisation
 // is the store's row-level security plus the caller's areas; a record outside
 // them is not found, never "forbidden" (TR-75). Depends on internal/store,
 // internal/domain, internal/authz, internal/contribute (for the caller and

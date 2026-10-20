@@ -58,7 +58,8 @@ func (s *Service) GetRecord(ctx context.Context, ac *authz.Context, in wire.GetR
 	return wire.Record{}, fmt.Errorf("%w: %s", ErrNotFound, id)
 }
 
-// GetHistory reads a record's revisions and, for a claim, its support events.
+// GetHistory reads a record's revisions and, for a claim, its support events
+// and the assertions it was derived from.
 func (s *Service) GetHistory(ctx context.Context, ac *authz.Context, in wire.GetHistoryInput) (wire.HistoryOutput, error) {
 	if ac == nil {
 		return wire.HistoryOutput{}, authz.ErrNoContext
@@ -92,6 +93,13 @@ func (s *Service) GetHistory(ctx context.Context, ac *authz.Context, in wire.Get
 		for _, e := range events {
 			out.SupportEvents = append(out.SupportEvents, supportEventToWire(e))
 		}
+		links, err := s.pool.Derivations(ctx, caller, id)
+		if err != nil {
+			return wire.HistoryOutput{}, err
+		}
+		for _, l := range links {
+			out.Derivations = append(out.Derivations, wire.Derivation{SourceID: string(l.SourceID), Rationale: l.Rationale, RecordedAt: l.RecordedAt})
+		}
 	}
 	return out, nil
 }
@@ -116,6 +124,10 @@ func (s *Service) assertionRecord(ctx context.Context, caller store.Caller, a st
 	if err := s.auditRestricted(ctx, caller, a.Assertion.AreaID, a.Assertion.ID, evidence); err != nil {
 		return wire.Record{}, err
 	}
+	links, err := s.pool.Derivations(ctx, caller, a.Assertion.ID)
+	if err != nil {
+		return wire.Record{}, err
+	}
 	rec := wire.Record{
 		ID: string(a.Assertion.ID), RecordType: store.RecordAssertion, Area: area, AreaID: string(a.Assertion.AreaID), Kind: string(a.Assertion.Kind),
 		LifecycleState: a.LifecycleState, Revision: a.Revision, Support: SupportSummary(a.SupportScore, a.SupportConfigVersion, events, cfg, a.Assertion.Kind),
@@ -126,6 +138,10 @@ func (s *Service) assertionRecord(ctx context.Context, caller store.Caller, a st
 	for _, ev := range evidence {
 		rec.Citations = append(rec.Citations, citationToWire(ev))
 	}
+	for _, l := range links {
+		rec.DerivedFrom = append(rec.DerivedFrom, string(l.SourceID))
+	}
+	rec.Derived = len(rec.DerivedFrom) > 0
 	return rec, nil
 }
 
