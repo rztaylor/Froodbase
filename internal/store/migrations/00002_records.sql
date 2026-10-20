@@ -12,11 +12,10 @@
 -- LOGIN and an operator adds the credential. Grants are the minimum: insert
 -- and select everywhere, update on the two mutable record tables, delete on
 -- the name projection only; revision, audit_event and support_event are
--- append-only at the grant level and by policy.
---
--- Tables created later by the same role (River's queue, applied after the
--- goose migrations) receive full DML through default privileges at the end
--- of this file; a later record migration revokes what the role must not do.
+-- append-only at the grant level and by policy. River's queue tables, which
+-- store.Migrate applies before the goose migrations, get full DML. Nothing
+-- is granted by default: a later migration that adds a table grants what
+-- the role needs, or the service fails closed with a permission error.
 
 -- +goose StatementBegin
 DO $$
@@ -299,5 +298,20 @@ GRANT SELECT, INSERT ON knowledge_area, entity, entity_name, assertion, evidence
 GRANT UPDATE ON entity, assertion TO froodbase_app;
 GRANT DELETE ON entity_name TO froodbase_app;
 GRANT EXECUTE ON FUNCTION app_caller_areas(), app_area_ids(text[]) TO froodbase_app;
-ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO froodbase_app;
-ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT USAGE, SELECT ON SEQUENCES TO froodbase_app;
+
+-- River's queue (river_job, river_leader, river_queue, ...): the api enqueues
+-- and the dreamer works jobs as the service role.
+-- +goose StatementBegin
+DO $$
+DECLARE
+  name text;
+BEGIN
+  FOR name IN SELECT tablename FROM pg_tables WHERE schemaname = 'public' AND tablename LIKE 'river\_%' LOOP
+    EXECUTE format('GRANT SELECT, INSERT, UPDATE, DELETE ON %I TO froodbase_app', name);
+  END LOOP;
+  FOR name IN SELECT sequencename FROM pg_sequences WHERE schemaname = 'public' AND sequencename LIKE 'river\_%' LOOP
+    EXECUTE format('GRANT USAGE, SELECT ON SEQUENCE %I TO froodbase_app', name);
+  END LOOP;
+END
+$$;
+-- +goose StatementEnd

@@ -89,11 +89,17 @@ type MigrationStatus struct {
 	AppliedAt time.Time
 }
 
-// Migrate applies every pending migration in version order, then River's
-// job queue schema. Running it again with nothing pending is a no-op. It
-// returns the goose versions applied; River steps applied are counted in
+// Migrate applies River's job queue schema, then every pending goose
+// migration in version order. River goes first so a goose migration can
+// grant the service role access to River's tables whether the database is
+// new or being upgraded. Running it again with nothing pending is a no-op.
+// It returns the goose versions applied; River steps applied are counted in
 // the second result.
 func (p *Pool) Migrate(ctx context.Context) ([]int64, int, error) {
+	riverSteps, err := p.migrateRiver(ctx)
+	if err != nil {
+		return nil, 0, err
+	}
 	provider, db, err := p.provider()
 	if err != nil {
 		return nil, 0, err
@@ -106,10 +112,6 @@ func (p *Pool) Migrate(ctx context.Context) ([]int64, int, error) {
 	versions := make([]int64, 0, len(results))
 	for _, r := range results {
 		versions = append(versions, r.Source.Version)
-	}
-	riverSteps, err := p.migrateRiver(ctx)
-	if err != nil {
-		return nil, 0, err
 	}
 	return versions, riverSteps, nil
 }

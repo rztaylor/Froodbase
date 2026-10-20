@@ -45,7 +45,11 @@ sqlc v1.30.0 runs through `go run` (pure Go, nothing to install); `make sqlc-che
 | `make migrate` | Applies pending schema migrations to the Compose database by rerunning the `migrate` service (`froodbase-api migrate`); safe to repeat |
 | `make migrate-status` | Lists every migration with its version and whether it is applied, plus River's job queue schema version |
 
-`make up` also generates `FROODBASE_APP_DB_PASSWORD` into `.env`: the password of `froodbase_app`, the service role the api and dreamer connect as. `local/postgres-init/10-app-role.sh` creates that role when the PostgreSQL volume is first initialised, so a volume created before it existed needs `docker compose down -v` (the data is lost) before `make up`. The owner role `froodbase` is used only by the `migrate` service; `froodbase_app` owns nothing, so PostgreSQL's row-level security applies to every record it reads or writes and it cannot disable the policies (see "Records" below).
+`make up` also generates `FROODBASE_APP_DB_PASSWORD` into `.env`: the password of `froodbase_app`, the service role the api and dreamer connect as. `local/postgres-init/10-app-role.sh` creates that role when the PostgreSQL volume is first initialised. A volume created before it existed gets the role from migration 2 without a login; either start again with `docker compose down -v` (the data is lost) or give it the login from `.env` once:
+
+```bash
+printf "ALTER ROLE froodbase_app LOGIN PASSWORD :'p';\n" | docker compose exec -T postgres psql -U froodbase -d froodbase -v p="$(grep '^FROODBASE_APP_DB_PASSWORD=' .env | cut -d= -f2-)"
+``` The owner role `froodbase` is used only by the `migrate` service; `froodbase_app` owns nothing, so PostgreSQL's row-level security applies to every record it reads or writes and it cannot disable the policies (see "Records" below).
 
 `make up` also creates `local/users.json` from `local/users.example.json` on first run: three sample users (alice, reviewer; bob, contributor; carol, reader) in the `demo` area, all with the password `froodbase-dev`. The file is ignored by git.
 
@@ -121,7 +125,12 @@ Without Claude Code you can drive the binary over stdin; the stream must stay op
 
 ## Migrations
 
-Schema migrations are SQL files under `internal/store/migrations`, named `NNNNN_description.sql` with strictly increasing versions, applied by goose in version order and forward-only: a file has an Up section and no Down section, and a mistake is corrected by a later migration. After them, `froodbase-api migrate` applies River's own job queue schema (the `river_job` and related tables), which River versions itself. The migrations are embedded in `froodbase-api`, so `froodbase-api migrate` applies them wherever the binary runs and `froodbase-api migrate --status` lists them. Locally the Compose `migrate` service runs them before the api and dreamer start, and `make migrate` reruns them after you add a migration; in the cloud only the deployment pipeline runs them (`docs/planning/02-technical-requirements.md`, TR-92). Both server binaries open the database pool at startup and exit with a clear error if PostgreSQL is unreachable, so start the stack before running them from `bin/`.
+Schema migrations are SQL files under `internal/store/migrations`, named `NNNNN_description.sql` with strictly increasing versions, applied by goose in version order and forward-only: a file has an Up section and no Down section, and a mistake is corrected by a later migration. Before them, `froodbase-api migrate` applies River's own job queue schema (the `river_job` and related tables), which River versions itself, so a goose migration can grant the service role access to River's tables. Nothing is granted to `froodbase_app` by default: a migration that adds a table also grants what the role needs, otherwise the service fails closed with a permission error at startup.
+
+| Version | File | Creates |
+|---|---|---|
+| 1 | `00001_extensions.sql` | The `vector`, `pg_trgm` and `btree_gist` extensions |
+| 2 | `00002_records.sql` | The slice 1 record tables, the service role `froodbase_app` and its grants, row-level security on every table, the seeded service default support configuration | The migrations are embedded in `froodbase-api`, so `froodbase-api migrate` applies them wherever the binary runs and `froodbase-api migrate --status` lists them. Locally the Compose `migrate` service runs them before the api and dreamer start, and `make migrate` reruns them after you add a migration; in the cloud only the deployment pipeline runs them (`docs/planning/02-technical-requirements.md`, TR-92). Both server binaries open the database pool at startup and exit with a clear error if PostgreSQL is unreachable, so start the stack before running them from `bin/`.
 
 ## Records: history, audit and per-area access control
 
