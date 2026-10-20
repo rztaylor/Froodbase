@@ -123,6 +123,25 @@ Without Claude Code you can drive the binary over stdin; the stream must stay op
   | FROODBASE_API_URL=http://127.0.0.1:8080/mcp FROODBASE_USERNAME=alice FROODBASE_PASSWORD=froodbase-dev bin/froodbase-mcp 2>/dev/null
 ```
 
+## Five-minute walkthrough in Claude
+
+1. Start the stack and build the binaries:
+
+   ```bash
+   make up && make build
+   ```
+
+2. Register `froodbase-mcp` in Claude Code once (see "Using Froodbase from Claude Code" below for the command; use bob, the contributor, as the user) and open a new Claude Code session in this folder. `/mcp` lists `froodbase` with whoami, contribute, search, get_record and get_history.
+3. Ask Claude: "Call whoami on froodbase." It answers with bob and his contributor grant in `demo`.
+4. Ask Claude: "Contribute to the demo area: a service called Import Tool, and the observation that the callback failure was reproduced on version 2.3 in prod, citing ticket https://dev.azure.com/org/p/_workitems/edit/418 at revision 2026-10-20 with access class area. Use a fresh idempotency key." Claude calls `contribute`; the result lists the entity, the evidence and the observation with their ids, `lifecycle_state: active` and the observation's support (score 1, one root, threshold met).
+5. Ask Claude: "Search froodbase for Improt Tool." The entity comes back from the identifier channel as a candidate with its similarity; ask for "callback" and the observation comes back from the full-text channel with its citation.
+6. Ask Claude: "Show the history of that observation." `get_history` lists the one revision (bob, the rationale) and the `root_added` support event.
+7. Ask Claude to call `contribute` again with the same idempotency key: `replayed: true` and the same ids, nothing written twice.
+8. Meanwhile `make logs` shows the dreamer's `index_record` lines for the records, and `curl -s http://127.0.0.1:8081/healthz` reports `index_stale: 0`.
+9. Register a second server entry as carol (reader) or use curl with `-u carol:froodbase-dev`: `get_record` and `search` work, `contribute` is refused with "contributor role required" and the refusal is in `audit_event`.
+
+The same scenario runs as `TestSlice1Exit` in `internal/apitest` through the client `froodbase-mcp` uses (`make test-integration`).
+
 ## Contributing knowledge and reading it back
 
 Three tools arrive with slice 1, available in Claude through `froodbase-mcp` and over HTTP at `/mcp`:
