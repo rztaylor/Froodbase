@@ -12,6 +12,10 @@ coverage.out
 *.local
 /local/users.json
 
+# Claude Code: per-machine settings and worktrees (the repository skills are tracked)
+/.claude/worktrees/
+/.claude/settings.local.json
+
 # Editors and OS
 .DS_Store
 .idea/

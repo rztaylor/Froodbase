@@ -1,6 +1,9 @@
 // Package contribute turns a contribute call into records and writes them.
 //
-// It owns the translation of the tool input (wire.ContributeInput) into
+// It owns the inference of what a caller may leave out (infer.go: generated
+// refs, the evidence kind from well-known URIs, the area access class and
+// the commit a repository URL pins; anything else stays required), the
+// translation of the tool input (wire.ContributeInput) into
 // domain records with generated identifiers, the resolution of the caller's
 // refs to ids (new records in the same call or existing records in the
 // area), the two input forms (assertions of any kind, and the slice 1

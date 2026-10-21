@@ -55,6 +55,10 @@ func (s *Service) Contribute(ctx context.Context, ac *authz.Context, in wire.Con
 	if ac == nil {
 		return wire.ContributeOutput{}, authz.ErrNoContext
 	}
+	in, err := inferInput(in)
+	if err != nil {
+		return wire.ContributeOutput{}, err
+	}
 	if err := validateInput(in); err != nil {
 		return wire.ContributeOutput{}, err
 	}
