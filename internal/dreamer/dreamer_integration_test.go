@@ -29,7 +29,7 @@ func TestHeartbeatIsWorked(t *testing.T) {
 	minute := own.ScheduledFor.Format(time.RFC3339)
 
 	log := slog.New(slog.NewTextHandler(io.Discard, nil))
-	d, err := New(log, pool)
+	d, err := New(log, pool, testSchedule)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -237,6 +237,14 @@ type EntityView struct {
 // recorded_at if never verified) longer ago than its area's freshness policy
 // allows for its kind: it is still returned, flagged for review (TR-31).
 // An entity found by name is labelled with that name's status.
+//
+// DueForReview, StaleAt and ReviewSweptAt are the dreamer's review sweep
+// marks on a claim, as of its area's last sweep (ReviewSweptAt, absent
+// until the area is first swept): DueForReview means the record is in force
+// and its review_due_at has passed; StaleAt is when a sweep first found it
+// stale, absent while it is not. They flag a record for a reviewer; they
+// never change its state, validity, support or revisions (PR-33). Stale is
+// computed live; StaleAt can lag it by one sweep.
 type Record struct {
 	ID                   string      `json:"id"`
 	RecordType           string      `json:"record_type"`
@@ -255,6 +263,9 @@ type Record struct {
 	ReviewDueAt          *time.Time  `json:"review_due_at,omitempty"`
 	Status               string      `json:"status,omitempty"`
 	Stale                bool        `json:"stale,omitempty"`
+	DueForReview         bool        `json:"due_for_review,omitempty"`
+	StaleAt              *time.Time  `json:"stale_at,omitempty"`
+	ReviewSweptAt        *time.Time  `json:"review_swept_at,omitempty"`
 	NeedsReconsideration bool        `json:"needs_reconsideration,omitempty"`
 	Subject              string      `json:"subject,omitempty"`
 	BodyMarkdown         string      `json:"body_markdown,omitempty"`

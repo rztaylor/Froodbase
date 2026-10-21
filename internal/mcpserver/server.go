@@ -85,7 +85,8 @@ type Handlers struct {
 // recordLabels is how every reading tool's description explains a record's
 // temporal fields (PR-22, TR-31, TR-53).
 const recordLabels = "Each record carries status relative to now: current (in force and valid now; no valid_to means not known to have ended, which is not the same as verified current), historical (superseded, retracted or valid only before now: never present it as current state) or upcoming (valid only from later). " +
-	"validity_unknown: true means nobody gave its validity dates, so it is not ruled out at any time and is not verified current; verified_at says when it was last checked, and stale: true means it is current but unchecked for longer than its area's freshness policy allows: it is still returned, so say it may be out of date."
+	"validity_unknown: true means nobody gave its validity dates, so it is not ruled out at any time and is not verified current; verified_at says when it was last checked, and stale: true means it is current but unchecked for longer than its area's freshness policy allows: it is still returned, so say it may be out of date. " +
+	"due_for_review: true means the periodic review sweep found it past its review date, and stale_at when the sweep first found it stale (review_swept_at says when its area was last swept): flags for a reviewer, never a change to the record, so report them and still use the record as its status says."
 
 // New builds an MCP server exposing the tools whose handlers are set.
 func New(version string, h Handlers) *mcp.Server {

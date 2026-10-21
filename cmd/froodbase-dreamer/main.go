@@ -8,6 +8,9 @@ import (
 	"os"
 	"os/signal"
 	"syscall"
+	"time"
+
+	"github.com/riverqueue/river"
 
 	"github.com/rztaylor/froodbase/internal/config"
 	"github.com/rztaylor/froodbase/internal/dreamer"
@@ -22,11 +25,14 @@ func main() {
 
 // run works background jobs and serves the health endpoint until a signal
 // arrives; "rebuild-index <area-id>" enqueues a rebuild of one area's
-// projections and exits. Exit codes: 0 ok, 1 runtime failure, 2 bad
-// configuration or usage.
+// projections and "review-sweep" a review sweep of every area now, and
+// exit. Exit codes: 0 ok, 1 runtime failure, 2 bad configuration or usage.
 func run(args []string) int {
 	if len(args) > 0 && args[0] == "rebuild-index" {
 		return runRebuildIndex(args[1:])
+	}
+	if len(args) > 0 && args[0] == "review-sweep" {
+		return runReviewSweep(args[1:])
 	}
 	flags := flag.NewFlagSet("froodbase-dreamer", flag.ContinueOnError)
 	showVersion := flags.Bool("version", false, "print the build version and exit")
@@ -55,7 +61,7 @@ func run(args []string) int {
 	}
 	defer pool.Close()
 
-	d, err := dreamer.New(log, pool)
+	d, err := dreamer.New(log, pool, dreamer.Schedule{ReviewSweepInterval: cfg.ReviewSweepInterval})
 	if err != nil {
 		log.Error("froodbase-dreamer failed", "err", err)
 		return 1
@@ -87,28 +93,44 @@ func runRebuildIndex(args []string) int {
 		fmt.Fprintln(os.Stderr, "usage: froodbase-dreamer rebuild-index <area-id>")
 		return 2
 	}
+	return enqueue("rebuild-index", jobs.RebuildIndexArgs{AreaID: args[0]},
+		"a rebuild for this area is already waiting", " for area "+args[0])
+}
+
+func runReviewSweep(args []string) int {
+	if len(args) != 0 {
+		fmt.Fprintln(os.Stderr, "usage: froodbase-dreamer review-sweep")
+		return 2
+	}
+	// The exact time is its own slot, so it never merges with a scheduled sweep.
+	return enqueue("review-sweep", jobs.ReviewSweepArgs{ScheduledFor: time.Now().UTC()},
+		"a sweep for this moment is already waiting", " for every area")
+}
+
+// enqueue inserts one job for a running dreamer to work and reports it.
+func enqueue(command string, job river.JobArgs, duplicate, target string) int {
 	cfg, err := config.LoadDreamer(os.LookupEnv)
 	if err != nil {
-		fmt.Fprintln(os.Stderr, "froodbase-dreamer rebuild-index:", err)
+		fmt.Fprintf(os.Stderr, "froodbase-dreamer %s: %v\n", command, err)
 		return 2
 	}
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 	pool, err := store.Open(ctx, cfg.DatabaseURL)
 	if err != nil {
-		fmt.Fprintln(os.Stderr, "froodbase-dreamer rebuild-index:", err)
+		fmt.Fprintf(os.Stderr, "froodbase-dreamer %s: %v\n", command, err)
 		return 1
 	}
 	defer pool.Close()
-	res, err := pool.Jobs().Insert(ctx, jobs.RebuildIndexArgs{AreaID: args[0]})
+	res, err := pool.Jobs().Insert(ctx, job)
 	if err != nil {
-		fmt.Fprintln(os.Stderr, "froodbase-dreamer rebuild-index:", err)
+		fmt.Fprintf(os.Stderr, "froodbase-dreamer %s: %v\n", command, err)
 		return 1
 	}
 	if res.UniqueSkippedAsDuplicate {
-		fmt.Println("rebuild-index: a rebuild for this area is already waiting")
+		fmt.Printf("%s: %s\n", command, duplicate)
 		return 0
 	}
-	fmt.Printf("rebuild-index: enqueued job %d for area %s\n", res.Job.ID, args[0])
+	fmt.Printf("%s: enqueued job %d%s\n", command, res.Job.ID, target)
 	return 0
 }

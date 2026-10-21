@@ -10,13 +10,16 @@
 // health endpoint (slice 1); reconsider_derived (per root added to a record
 // with dependants, unique per record while waiting), which walks the records
 // derived from it and passes the new roots on, completing itself in the
-// walk's transaction (slice 1b; the weakening events extend it). Later
-// slices add review_sweep (periodic) and gap_scan (periodic per area).
-// A job acts within the area it was enqueued for: its store caller holds
-// that area id and nothing else, so row-level security applies to jobs as
-// to people. Periodic jobs are inserted only by River's elected leader, so
-// two dreamer instances never both schedule them, and the heartbeat is
-// unique per minute as a second guard. Argument types live in internal/store/jobs so froodbase-api
+// walk's transaction (slice 1b; the weakening events extend it);
+// review_sweep (periodic on the Schedule's interval, slice 2), which marks
+// each area's records due for review or stale beside them and never
+// changes a record. Later slices add gap_scan (periodic per area). A job
+// acts within the area it was enqueued for: its store caller holds that
+// area id and nothing else, so row-level security applies to jobs as to
+// people; the review sweep, enqueued for no area, sweeps each area with a
+// caller holding that area alone. Periodic jobs are inserted only by
+// River's elected leader, so two dreamer instances never both schedule
+// them, and each is unique per slot as a second guard. Argument types live in internal/store/jobs so froodbase-api
 // can enqueue jobs in its write transactions. This package never speaks for
 // itself: nothing it does becomes accepted knowledge without a reviewer.
 // Depends on internal/store (and store/jobs) and internal/version.

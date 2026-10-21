@@ -20,6 +20,7 @@ import (
 	"github.com/rztaylor/froodbase/internal/httpserver"
 	"github.com/rztaylor/froodbase/internal/mcpserver"
 	"github.com/rztaylor/froodbase/internal/store"
+	"github.com/rztaylor/froodbase/internal/store/jobs"
 	"github.com/rztaylor/froodbase/internal/store/storetest"
 	"github.com/rztaylor/froodbase/internal/version"
 )
@@ -76,7 +77,7 @@ func Start(t testing.TB) *Env {
 	ts := httptest.NewServer(srv.Handler())
 	t.Cleanup(ts.Close)
 
-	d, err := dreamer.New(log, db.App)
+	d, err := dreamer.New(log, db.App, dreamer.Schedule{ReviewSweepInterval: time.Hour})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -109,6 +110,22 @@ func WaitFor(t testing.TB, cond func() bool, timeout time.Duration, what string)
 		}
 		time.Sleep(200 * time.Millisecond)
 	}
+}
+
+// WaitStartupSweep waits for the review sweep the dreamer runs at start to
+// complete, so a test that seeds review dates or old checks afterwards and
+// then sweeps at a time of its choosing (Dreamer.SweepReview) is not raced
+// by it. Later periodic sweeps follow the default interval of an hour.
+func (e *Env) WaitStartupSweep(t testing.TB) {
+	t.Helper()
+	ctx := context.Background()
+	WaitFor(t, func() bool {
+		var n int
+		if err := e.DB.Admin.Pgx().QueryRow(ctx, "select count(*) from river_job where kind = $1 and state = 'completed'", jobs.KindReviewSweep).Scan(&n); err != nil {
+			t.Fatal(err)
+		}
+		return n > 0
+	}, 60*time.Second, "the start-up review sweep")
 }
 
 // Staleness reads the projection status.

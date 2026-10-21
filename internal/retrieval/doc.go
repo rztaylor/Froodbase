@@ -8,7 +8,8 @@
 // (TR-14): kind, lifecycle state, support with its counts, roots by source
 // kind and threshold verdict, scope, validity, verification date, citations and, for a
 // deduction, the derived flag and its sources (PR-13), labelled with the
-// status relative to now and the stale flag the store's SQL gives it. Authorisation
+// status relative to now and the stale flag the store's SQL gives it, and
+// the review sweep's marks (due_for_review, stale_at). Authorisation
 // is the store's row-level security plus the caller's areas; a record outside
 // them is not found, never "forbidden" (TR-75). Depends on internal/store,
 // internal/domain, internal/authz, internal/contribute (for the caller, area
