@@ -75,32 +75,8 @@ func TestDocumentFindings(t *testing.T) {
 		}
 	}
 
-	agreed := time.Date(2026, 10, 14, 0, 0, 0, 0, time.UTC)
-	request := wire.ContributeInput{
-		Area: "demo", IdempotencyKey: "bob-sample-design-note", Rationale: "findings of the sample design note",
-		Entities: []wire.EntityInput{{Ref: "gateway", Type: "service", Names: []wire.Name{{Name: "Callback Gateway"}}}},
-		Evidence: []wire.EvidenceInput{
-			{Ref: "doc", SourceURI: sampleDoc},
-			{Ref: "measurements", SourceURI: sampleDoc, Locator: "Measurements", Root: "doc"},
-			{Ref: "analysis", SourceURI: sampleDoc, Locator: "Analysis", Root: "doc"},
-			{Ref: "decision", SourceURI: sampleDoc, Locator: "Decision", Root: "doc",
-				Excerpt: "From version 2.3.2 the callback timeout is capped at 5 seconds"},
-		},
-		Assertions: []wire.AssertionInput{
-			{Ref: "measured", Kind: "observation", Subject: tool, Evidence: []string{"measurements"},
-				BodyMarkdown: "In staging, callbacks on 2.3.0 took 30.2 seconds on average over 200 imports, against 1.1 seconds on 2.2.4",
-				Scope:        &wire.Scope{Environment: "staging", VersionMin: "2.3.0", VersionMax: "2.3.0"}},
-			{Ref: "attempts", Kind: "observation", Subject: "gateway", Evidence: []string{"measurements"},
-				BodyMarkdown: "The callback gateway gives up on a callback after three failed attempts"},
-			{Ref: "cause", Kind: "inference", Subject: tool, Evidence: []string{"analysis"}, DerivedFrom: []string{fails, "measured"},
-				BodyMarkdown: "The 2.3 retry waits out the full 30 second timeout before each retry"},
-			{Ref: "drops", Kind: "inference", Subject: "gateway", Evidence: []string{"analysis"}, DerivedFrom: []string{"measured", "attempts"},
-				BodyMarkdown: "Slow retries on import tool 2.3 probably make the callback gateway drop callbacks under load"},
-			{Ref: "cap", Kind: "decision", Subject: tool, Evidence: []string{"decision"}, DerivedFrom: []string{"cause"}, ValidFrom: &agreed,
-				BodyMarkdown: "From 2.3.2 the callback timeout is capped at 5 seconds and retries back off from 1 second",
-				Scope:        &wire.Scope{VersionMin: "2.3.2"}},
-		},
-	}
+	agreed := sampleDecided
+	request := sampleDocumentFindings(tool, fails)
 	out, err := bob.Contribute(ctx, request)
 	if err != nil {
 		t.Fatalf("document findings refused: %v", err)
@@ -228,6 +204,45 @@ func TestDocumentFindings(t *testing.T) {
 	rec, err := carol.GetRecord(ctx, wire.GetRecordInput{ID: written(notes)["assertion-1"].ID})
 	if err != nil || len(rec.Citations) != 1 || rec.Citations[0].SourceKind != "statement" || rec.Citations[0].SourceURI != "person://bob" {
 		t.Errorf("statement observation read back = %+v, %v; want bob's statement", rec.Citations, err)
+	}
+}
+
+// sampleDecided is the date the sample document's decision states.
+var sampleDecided = time.Date(2026, 10, 14, 0, 0, 0, 0, time.UTC)
+
+// sampleDocumentFindings is the change set the development guide's worked
+// example has Claude build from the sample document, for an area that
+// already holds the import tool entity (tool) and the work item's
+// observation that its callbacks fail after a 30 second timeout (fails).
+// Refs: gateway (the new entity), doc and its sections measurements,
+// analysis and decision, and the claims measured, attempts, cause, drops
+// and cap.
+func sampleDocumentFindings(tool, fails string) wire.ContributeInput {
+	decided := sampleDecided
+	return wire.ContributeInput{
+		Area: "demo", IdempotencyKey: "bob-sample-design-note", Rationale: "findings of the sample design note",
+		Entities: []wire.EntityInput{{Ref: "gateway", Type: "service", Names: []wire.Name{{Name: "Callback Gateway"}}}},
+		Evidence: []wire.EvidenceInput{
+			{Ref: "doc", SourceURI: sampleDoc},
+			{Ref: "measurements", SourceURI: sampleDoc, Locator: "Measurements", Root: "doc"},
+			{Ref: "analysis", SourceURI: sampleDoc, Locator: "Analysis", Root: "doc"},
+			{Ref: "decision", SourceURI: sampleDoc, Locator: "Decision", Root: "doc",
+				Excerpt: "From version 2.3.2 the callback timeout is capped at 5 seconds"},
+		},
+		Assertions: []wire.AssertionInput{
+			{Ref: "measured", Kind: "observation", Subject: tool, Evidence: []string{"measurements"},
+				BodyMarkdown: "In staging, callbacks on 2.3.0 took 30.2 seconds on average over 200 imports, against 1.1 seconds on 2.2.4",
+				Scope:        &wire.Scope{Environment: "staging", VersionMin: "2.3.0", VersionMax: "2.3.0"}},
+			{Ref: "attempts", Kind: "observation", Subject: "gateway", Evidence: []string{"measurements"},
+				BodyMarkdown: "The callback gateway gives up on a callback after three failed attempts"},
+			{Ref: "cause", Kind: "inference", Subject: tool, Evidence: []string{"analysis"}, DerivedFrom: []string{fails, "measured"},
+				BodyMarkdown: "The 2.3 retry waits out the full 30 second timeout before each retry"},
+			{Ref: "drops", Kind: "inference", Subject: "gateway", Evidence: []string{"analysis"}, DerivedFrom: []string{"measured", "attempts"},
+				BodyMarkdown: "Slow retries on import tool 2.3 probably make the callback gateway drop callbacks under load"},
+			{Ref: "cap", Kind: "decision", Subject: tool, Evidence: []string{"decision"}, DerivedFrom: []string{"cause"}, ValidFrom: &decided,
+				BodyMarkdown: "From 2.3.2 the callback timeout is capped at 5 seconds and retries back off from 1 second",
+				Scope:        &wire.Scope{VersionMin: "2.3.2"}},
+		},
 	}
 }
 
