@@ -61,6 +61,18 @@ func (p *Pool) QueueDepth(ctx context.Context) (int, error) {
 	return n, nil
 }
 
+// WaitingJobs counts the jobs of one kind waiting to run: available,
+// scheduled, retryable or pending, not the one running.
+func (p *Pool) WaitingJobs(ctx context.Context, kind string) (int, error) {
+	var n int
+	err := p.pool.QueryRow(ctx,
+		"select count(*) from river_job where kind = $1 and state in ('available', 'scheduled', 'retryable', 'pending')", kind).Scan(&n)
+	if err != nil {
+		return 0, fmt.Errorf("store: counting waiting %s jobs: %w", kind, err)
+	}
+	return n, nil
+}
+
 // migrateRiver applies River's own schema (the river_job and related tables)
 // before the goose migrations. River versions its schema itself; the
 // migration is forward-only here like everything else.

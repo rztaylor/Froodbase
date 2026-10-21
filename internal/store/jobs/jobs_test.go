@@ -39,3 +39,14 @@ func TestIndexRecordArgs(t *testing.T) {
 		t.Error("index_record is not unique by args")
 	}
 }
+
+func TestReconsiderDerivedArgs(t *testing.T) {
+	args := ReconsiderDerivedArgs{RecordID: "r1", AreaID: "a1"}
+	if args.Kind() != KindReconsiderDerived || KindReconsiderDerived != "reconsider_derived" {
+		t.Errorf("Kind() = %q", args.Kind())
+	}
+	opts := args.InsertOpts().UniqueOpts
+	if !opts.ByArgs || len(opts.ByState) != len(waitingStates) {
+		t.Errorf("reconsider_derived unique opts = %+v, want unique by record while waiting or running", opts)
+	}
+}

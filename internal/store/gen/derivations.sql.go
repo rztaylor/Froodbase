@@ -10,6 +10,17 @@ import (
 	"time"
 )
 
+const hasDependants = `-- name: HasDependants :one
+SELECT EXISTS (SELECT 1 FROM derivation WHERE source_id = $1)
+`
+
+func (q *Queries) HasDependants(ctx context.Context, sourceID string) (bool, error) {
+	row := q.db.QueryRow(ctx, hasDependants, sourceID)
+	var exists bool
+	err := row.Scan(&exists)
+	return exists, err
+}
+
 const insertDerivation = `-- name: InsertDerivation :exec
 INSERT INTO derivation (derived_id, source_id, area_id, rationale, recorded_at)
 VALUES ($1, $2, $3, $4, $5)
@@ -41,6 +52,39 @@ FROM derivation WHERE derived_id = $1 ORDER BY recorded_at, source_id
 
 func (q *Queries) ListDerivationSources(ctx context.Context, derivedID string) ([]Derivation, error) {
 	rows, err := q.db.Query(ctx, listDerivationSources, derivedID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []Derivation{}
+	for rows.Next() {
+		var i Derivation
+		if err := rows.Scan(
+			&i.DerivedID,
+			&i.SourceID,
+			&i.AreaID,
+			&i.Rationale,
+			&i.RecordedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listDerivedFrom = `-- name: ListDerivedFrom :many
+SELECT derived_id, source_id, area_id, rationale, recorded_at
+FROM derivation WHERE source_id = ANY($1::uuid[]) ORDER BY derived_id, source_id
+`
+
+// The links naming any of the given records as their source: one step of
+// the walk from a changed record to everything derived from it.
+func (q *Queries) ListDerivedFrom(ctx context.Context, sourceIds []string) ([]Derivation, error) {
+	rows, err := q.db.Query(ctx, listDerivedFrom, sourceIds)
 	if err != nil {
 		return nil, err
 	}

@@ -20,6 +20,9 @@ type Caller struct {
 	UserID  string
 	AgentID string
 	AreaIDs []string
+	// Job names the dreamer job acting, when no person is: support events it
+	// appends record the job instead of a user (TR-29). Empty for people.
+	Job string
 }
 
 // SessionVariable is the PostgreSQL setting the policies read.
@@ -39,6 +42,15 @@ func (c Caller) hasArea(id string) bool {
 		}
 	}
 	return false
+}
+
+// supportActor is who a support event records: the job when one acts,
+// otherwise the user.
+func (c Caller) supportActor() (user, job *string) {
+	if c.Job != "" {
+		return nil, optional(c.Job)
+	}
+	return optional(c.UserID), nil
 }
 
 func (c Caller) agentID() *string {
