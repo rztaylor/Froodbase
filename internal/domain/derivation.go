@@ -90,6 +90,93 @@ func OrderByDerivation(ids []ID, links []Derivation) ([]ID, error) {
 	return out, nil
 }
 
+// Dependants returns every record derived from start, directly or through
+// other records, following links from source to derived record: the records
+// to reconsider when start changes (PR-13, TR-44). start is not included.
+// Each record appears once and after every one of its sources that is also
+// a dependant, so a record reconsidered from its sources sees them already
+// reconsidered; links that do not lead from start are ignored. The walk
+// stops on cycles: records that derive from each other in a loop are each
+// returned once, the first one the walk reached leading. The walk is
+// breadth-first and visits each record's derived records in id order, so
+// the order is deterministic.
+func Dependants(start ID, links []Derivation) []ID {
+	children := map[ID][]ID{}
+	sources := map[ID]map[ID]bool{}
+	for _, l := range links {
+		if l.DerivedID == l.SourceID {
+			continue
+		}
+		if sources[l.DerivedID] == nil {
+			sources[l.DerivedID] = map[ID]bool{}
+		}
+		if !sources[l.DerivedID][l.SourceID] {
+			sources[l.DerivedID][l.SourceID] = true
+			children[l.SourceID] = append(children[l.SourceID], l.DerivedID)
+		}
+	}
+	for _, c := range children {
+		sort.Slice(c, func(i, j int) bool { return c[i] < c[j] })
+	}
+
+	// Breadth-first from start: the records reached, in the order reached.
+	reached := map[ID]bool{start: true}
+	var walk []ID
+	for frontier := []ID{start}; len(frontier) > 0; {
+		var next []ID
+		for _, id := range frontier {
+			for _, c := range children[id] {
+				if !reached[c] {
+					reached[c] = true
+					walk = append(walk, c)
+					next = append(next, c)
+				}
+			}
+		}
+		frontier = next
+	}
+	if len(walk) == 0 {
+		return nil
+	}
+
+	// Sources first among the reached records; start counts as done.
+	waiting := make(map[ID]int, len(walk))
+	for _, id := range walk {
+		for s := range sources[id] {
+			if s != start && reached[s] {
+				waiting[id]++
+			}
+		}
+	}
+	done := map[ID]bool{}
+	out := make([]ID, 0, len(walk))
+	for len(out) < len(walk) {
+		pick := ID("")
+		for _, id := range walk {
+			if !done[id] && waiting[id] == 0 {
+				pick = id
+				break
+			}
+		}
+		if pick == "" { // only a cycle is left: break it at the first reached
+			for _, id := range walk {
+				if !done[id] {
+					pick = id
+					break
+				}
+			}
+		}
+		done[pick] = true
+		out = append(out, pick)
+		for _, c := range children[pick] {
+			if !done[c] && c != start {
+				waiting[c]--
+			}
+		}
+	}
+	return out
+}
+
 // RootOrigin is one distinct evidence root of a claim and where it came
 // from: cited directly by the claim's own evidence, inherited from the
 // sources it was derived from, or both.

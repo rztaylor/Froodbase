@@ -7,7 +7,8 @@
 // classes, support event types), record validation, what each kind must rest
 // on (an observation cites evidence; a decision or inference cites evidence,
 // is derived from other assertions, or both), derivation order and cycles,
-// the roots a deduction inherits from its sources, evidence that the
+// the roots a deduction inherits from its sources, the walk order of the
+// records to reconsider when a source changes, evidence that the
 // audience can check (source kinds, including command observations and
 // personal statements, their URI patterns and required fields; an access
 // class never wider than its source's; nothing that looks like a secret),
@@ -23,5 +24,5 @@
 // which callers supply. It imports only the standard library.
 //
 // Requirements: PR-01, PR-03, PR-06, PR-10 to PR-13, PR-15, PR-41, PR-42,
-// TR-20, TR-22, TR-24, TR-25, TR-29, TR-43, TR-61.
+// TR-20, TR-22, TR-24, TR-25, TR-29, TR-43, TR-44, TR-61.
 package domain

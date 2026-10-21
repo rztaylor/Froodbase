@@ -178,6 +178,29 @@ func (q *Queries) ListAssertionsForEntity(ctx context.Context, subjectEntityID s
 	return items, nil
 }
 
+const lockAssertion = `-- name: LockAssertion :exec
+SELECT id FROM assertion WHERE id = $1 FOR UPDATE
+`
+
+// Holds the claim's row until the transaction ends, so two writers adding
+// roots to one claim take turns.
+func (q *Queries) LockAssertion(ctx context.Context, id string) error {
+	_, err := q.db.Exec(ctx, lockAssertion, id)
+	return err
+}
+
+const lockAssertionShare = `-- name: LockAssertionShare :exec
+SELECT id FROM assertion WHERE id = $1 FOR SHARE
+`
+
+// Holds the record against root additions (which lock it for update) until
+// the transaction ends: taken on a source while a deduction is derived from
+// it and on a changed record while its dependants are reconsidered.
+func (q *Queries) LockAssertionShare(ctx context.Context, id string) error {
+	_, err := q.db.Exec(ctx, lockAssertionShare, id)
+	return err
+}
+
 const updateAssertion = `-- name: UpdateAssertion :execrows
 UPDATE assertion
 SET body_markdown = $3, scope = $4, valid_from = $5, valid_to = $6,

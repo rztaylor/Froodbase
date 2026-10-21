@@ -344,15 +344,17 @@ func (p *Pool) UpdateAssertion(ctx context.Context, caller Caller, a domain.Asse
 // evidence the area does not yet hold, links it, appends a root_added event
 // for every distinct root the claim has not seen (repeated descendants of a
 // known root add nothing, TR-29) and stores the score re-projected from the
-// claim's whole history under the area's current configuration. It returns
-// the new score. The assertion's content is unchanged, so no revision is
-// written; the audit event and the support events are the history.
+// claim's whole history under the area's current configuration. When a new
+// root was added and records are derived from the claim, it enqueues the
+// reconsider_derived job so they gain the root too. It returns the new
+// score. The assertion's content is unchanged, so no revision is written;
+// the audit event and the support events are the history.
 func (p *Pool) LinkEvidence(ctx context.Context, caller Caller, claimID domain.ID, evidence []domain.Evidence, rationale string) (float64, error) {
 	if err := claimID.Validate(); err != nil {
 		return 0, fmt.Errorf("claim id: %w", err)
 	}
 	var score float64
-	err := p.inTx(ctx, caller, func(ctx context.Context, _ pgx.Tx, q *gen.Queries) error {
+	err := p.inTx(ctx, caller, func(ctx context.Context, tx pgx.Tx, q *gen.Queries) error {
 		now := p.now().UTC()
 		cur, err := q.GetAssertion(ctx, string(claimID))
 		if err != nil {
@@ -378,7 +380,7 @@ func (p *Pool) LinkEvidence(ctx context.Context, caller Caller, claimID domain.I
 				return err
 			}
 		}
-		linked, err := p.linkEvidence(ctx, q, caller, cur, evidence, cfg, rationale, now)
+		linked, err := p.linkEvidence(ctx, tx, q, caller, cur, evidence, cfg, rationale, now)
 		if err != nil {
 			return err
 		}
@@ -564,7 +566,7 @@ func (p *Pool) insertAssertion(ctx context.Context, tx pgx.Tx, q *gen.Queries, c
 	if err := insertClaimEvidence(ctx, q, cur, evidence); err != nil {
 		return 0, nil, err
 	}
-	score, events, err := p.addRoots(ctx, q, caller, cur, domain.DerivedRoots(evidence, sourceRoots), cfg, rationale, now)
+	score, events, _, err := p.addRoots(ctx, tx, q, caller, cur, domain.DerivedRoots(evidence, sourceRoots), cfg, rationale, now)
 	if err != nil {
 		return 0, nil, err
 	}
@@ -596,6 +598,12 @@ func (p *Pool) insertDerivations(ctx context.Context, q *gen.Queries, cur gen.Ge
 			if src.AreaID != cur.AreaID {
 				return nil, fmt.Errorf("%s derived from %s: %w", cur.ID, d.SourceID, ErrCrossArea)
 			}
+			// Hold the source against root additions until this commits, so
+			// a root it gains meanwhile is either read below or propagated
+			// to this deduction by the job its addition enqueues.
+			if err := q.LockAssertionShare(ctx, string(d.SourceID)); err != nil {
+				return nil, err
+			}
 		}
 		if err := q.InsertDerivation(ctx, gen.InsertDerivationParams{
 			DerivedID: cur.ID, SourceID: string(d.SourceID), AreaID: cur.AreaID, Rationale: d.Rationale, RecordedAt: d.RecordedAt.UTC(),
@@ -616,11 +624,11 @@ func (p *Pool) insertDerivations(ctx context.Context, q *gen.Queries, cur gen.Ge
 // linkEvidence links evidence to the assertion, appends a root_added event
 // for each root the claim has not seen, re-projects the score from every
 // event under cfg and stores it. Idempotent for evidence already linked.
-func (p *Pool) linkEvidence(ctx context.Context, q *gen.Queries, caller Caller, cur gen.GetAssertionRow, evidence []domain.Evidence, cfg domain.SupportConfig, rationale string, now time.Time) (float64, error) {
+func (p *Pool) linkEvidence(ctx context.Context, tx pgx.Tx, q *gen.Queries, caller Caller, cur gen.GetAssertionRow, evidence []domain.Evidence, cfg domain.SupportConfig, rationale string, now time.Time) (float64, error) {
 	if err := insertClaimEvidence(ctx, q, cur, evidence); err != nil {
 		return 0, err
 	}
-	score, _, err := p.addRoots(ctx, q, caller, cur, domain.DerivedRoots(evidence, nil), cfg, rationale, now)
+	score, _, _, err := p.addRoots(ctx, tx, q, caller, cur, domain.DerivedRoots(evidence, nil), cfg, rationale, now)
 	return score, err
 }
 
@@ -639,12 +647,19 @@ func insertClaimEvidence(ctx context.Context, q *gen.Queries, cur gen.GetAsserti
 // re-projects the score from every event under cfg and stores it. A
 // person's statements count as one root per claim: a statement root whose
 // person the claim already has a statement root from adds nothing, as
-// repeating oneself earns nothing (PR-15). It returns the score and the
-// claim's events.
-func (p *Pool) addRoots(ctx context.Context, q *gen.Queries, caller Caller, cur gen.GetAssertionRow, origins []domain.RootOrigin, cfg domain.SupportConfig, rationale string, now time.Time) (float64, []domain.SupportEvent, error) {
+// repeating oneself earns nothing (PR-15). The claim is locked first, so
+// writers adding roots to one claim take turns. When a root was added and
+// records are derived from the claim, the reconsider_derived job is
+// enqueued in tx so they gain it too (TR-44); the job itself does not
+// enqueue, as its walk already covers them. It returns the score, the
+// claim's events and the roots added.
+func (p *Pool) addRoots(ctx context.Context, tx pgx.Tx, q *gen.Queries, caller Caller, cur gen.GetAssertionRow, origins []domain.RootOrigin, cfg domain.SupportConfig, rationale string, now time.Time) (float64, []domain.SupportEvent, []domain.ID, error) {
+	if err := q.LockAssertion(ctx, cur.ID); err != nil {
+		return 0, nil, nil, err
+	}
 	known, err := q.ListSupportRootSources(ctx, cur.ID)
 	if err != nil {
-		return 0, nil, err
+		return 0, nil, nil, err
 	}
 	seen := make(map[domain.ID]bool, len(known))
 	people := map[string]bool{}
@@ -656,15 +671,17 @@ func (p *Pool) addRoots(ctx context.Context, q *gen.Queries, caller Caller, cur 
 	}
 	scope, err := scopeFromBytes(cur.Scope)
 	if err != nil {
-		return 0, nil, err
+		return 0, nil, nil, err
 	}
+	actorUser, actorJob := caller.supportActor()
+	var added []domain.ID
 	for _, o := range origins {
 		if seen[o.Root] {
 			continue
 		}
 		root, err := q.GetEvidence(ctx, string(o.Root))
 		if err != nil {
-			return 0, nil, fmt.Errorf("evidence root %s: %w", o.Root, mapErr(err))
+			return 0, nil, nil, fmt.Errorf("evidence root %s: %w", o.Root, mapErr(err))
 		}
 		kind := domain.SourceKind(root.SourceKind)
 		if kind == domain.SourceStatement {
@@ -674,49 +691,69 @@ func (p *Pool) addRoots(ctx context.Context, q *gen.Queries, caller Caller, cur 
 			people[root.SourceUri] = true
 		}
 		e := domain.SupportEvent{
-			Type: domain.SupportRootAdded, EvidenceRootIDs: []domain.ID{o.Root}, SourceKind: kind, Scope: scope, ActorUserID: domain.ID(caller.UserID),
-			ActorAgentID: domain.ID(caller.AgentID), ConfigVersion: cfg.Version, Rationale: o.Rationale(rationale), At: now,
+			Type: domain.SupportRootAdded, EvidenceRootIDs: []domain.ID{o.Root}, SourceKind: kind, Scope: scope, ActorUserID: domain.ID(deref(actorUser)),
+			ActorAgentID: domain.ID(caller.AgentID), JobName: deref(actorJob), ConfigVersion: cfg.Version, Rationale: o.Rationale(rationale), At: now,
 		}
 		if err := e.Validate(); err != nil {
-			return 0, nil, err
+			return 0, nil, nil, err
 		}
 		k := string(kind)
 		if err := q.InsertSupportEvent(ctx, gen.InsertSupportEventParams{
 			RecordID: cur.ID, AreaID: cur.AreaID, EventType: string(e.Type), EvidenceRootIds: []string{string(o.Root)}, Scope: scopeBytes(scope),
-			ActorUserID: optional(caller.UserID), ActorAgentID: caller.agentID(), JobName: nil, ConfigVersion: cfg.Version, Rationale: e.Rationale, At: now,
+			ActorUserID: actorUser, ActorAgentID: caller.agentID(), JobName: actorJob, ConfigVersion: cfg.Version, Rationale: e.Rationale, At: now,
 			SourceKind: &k,
 		}); err != nil {
-			return 0, nil, err
+			return 0, nil, nil, err
 		}
 		seen[o.Root] = true
+		added = append(added, o.Root)
 	}
 	rows, err := q.ListSupportEvents(ctx, cur.ID)
 	if err != nil {
-		return 0, nil, err
+		return 0, nil, nil, err
 	}
 	events := make([]domain.SupportEvent, 0, len(rows))
 	for _, r := range rows {
 		ev, err := supportEventFromRow(r)
 		if err != nil {
-			return 0, nil, err
+			return 0, nil, nil, err
 		}
 		events = append(events, ev)
 	}
 	score, err := domain.SupportScore(events, cfg)
 	if err != nil {
-		return 0, nil, err
+		return 0, nil, nil, err
 	}
 	n, err := q.UpdateAssertionSupport(ctx, gen.UpdateAssertionSupportParams{
 		ID: cur.ID, SupportScore: score, SupportConfigVersion: cfg.Version,
 		NeedsReconsideration: !cfg.MeetsThreshold(domain.EpistemicKind(cur.EpistemicKind), score) && cur.NeedsReconsideration,
 	})
 	if err != nil {
-		return 0, nil, err
+		return 0, nil, nil, err
 	}
 	if n == 0 {
-		return 0, nil, ErrNotFound
+		return 0, nil, nil, ErrNotFound
 	}
-	return score, events, nil
+	if len(added) > 0 && caller.Job != jobs.KindReconsiderDerived {
+		if err := p.enqueueReconsider(ctx, tx, q, cur.ID, cur.AreaID); err != nil {
+			return 0, nil, nil, err
+		}
+	}
+	return score, events, added, nil
+}
+
+// enqueueReconsider enqueues the reconsider_derived job for a record whose
+// support changed, when anything is derived from it.
+func (p *Pool) enqueueReconsider(ctx context.Context, tx pgx.Tx, q *gen.Queries, recordID, areaID string) error {
+	has, err := q.HasDependants(ctx, recordID)
+	if err != nil || !has {
+		return err
+	}
+	if err := p.hook("job"); err != nil {
+		return err
+	}
+	_, err = p.jobs.InsertTx(ctx, tx, jobs.ReconsiderDerivedArgs{RecordID: recordID, AreaID: areaID})
+	return err
 }
 
 func (p *Pool) currentSupportConfig(ctx context.Context, q *gen.Queries, areaID string) (domain.SupportConfig, error) {
