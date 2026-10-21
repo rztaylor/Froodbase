@@ -152,6 +152,8 @@ You speak plainly; Claude structures the calls. The repository skill `.claude/sk
 
 `TestSlice1Exit`, `TestPlainContribution`, `TestEvidenceForExistingClaim`, `TestDocumentFindings` and `TestSlice1bExit` in `internal/apitest` run the same calls through the client `froodbase-mcp` uses (`make test-integration`); `TestPlainContribution` sends only the fields a plain request gives, `TestEvidenceForExistingClaim` is step 6, `TestDocumentFindings` is step 12, and `TestSlice1bExit` is the slice 1b exit: steps 4, 13, 14 and 7, then step 6 with the dreamer strengthening the inference, then step 12, and every record read back with its sources through `get_record`, `get_history` and `search`. `TestTwoClocks` is steps 15 to 17: records with and without dates and scope, a superseded one, each mode, `get_as_of` before, during and after a record's validity, and the stale flag.
 
+The pitch's worked example, the slice 2 exit (PR-27), has its own walkthrough: [The pitch's 2.3 to 2.4 story in Claude](../guides/pitch-walkthrough.md) records the failure on 2.3, the merge, the 2.4 deployment and the late import, then asks what is true now, what was true on 2 September and everything. `TestSlice2Exit` runs the same calls.
+
 ## Contributing knowledge and reading it back
 
 Three tools arrive with slice 1, available in Claude through `froodbase-mcp` and over HTTP at `/mcp`:

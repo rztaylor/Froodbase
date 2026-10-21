@@ -8,7 +8,8 @@
 // no logic of its own: internal/domain's tests run them against the Go
 // functions, and the store's integration tests run the same cases through the
 // SQL functions, so both implementations answer to one table. A case added
-// here is checked by both.
+// here is checked by both. The slice 2 exit scenario (internal/apitest)
+// contributes the pitch's records through the client path.
 //
 // Not here: the rules themselves (internal/domain), database access
 // (internal/store, internal/store/storetest). Used by tests only. Depends on

@@ -8,6 +8,7 @@
 - `docs/dev/specs/`: durable feature and API specs once the tool contract is implemented.
 - `docs/dev/guides/`: contributor guides.
 - `docs/dev/guides/sample-design-note.md`: a fictional document the development guide's worked example records findings from, cited at a commit; change it only together with that example and `TestDocumentFindings`.
+- `docs/dev/guides/pitch-walkthrough.md`: the pitch's 2.3 to 2.4 story told to Claude (PR-27, the slice 2 exit); change it only together with `TestSlice2Exit`.
 - `docs/dev/plans/`: active implementation plans only, named after their ticket, deleted at closure.
 - `docs/user/`: not yet needed.
 - Style: British English, sentence-case headings, Mermaid for diagrams, requirement ids `PR-nn` and `TR-nn` where traceability matters. Keep diagrams parseable by Mermaid 11 (no semicolons in sequence messages).
