@@ -83,6 +83,7 @@ services:
     image: froodbase-dreamer:local
     environment:
       FROODBASE_DREAMER_ADDR: ":8081"
+      FROODBASE_REVIEW_SWEEP_INTERVAL: ${FROODBASE_REVIEW_SWEEP_INTERVAL:-1h}
       FROODBASE_DATABASE_URL: postgres://froodbase_app:${FROODBASE_APP_DB_PASSWORD}@postgres:5432/${FROODBASE_DB_NAME:-froodbase}?sslmode=disable
     ports:
       - "127.0.0.1:${FROODBASE_DREAMER_PORT:-8081}:8081"

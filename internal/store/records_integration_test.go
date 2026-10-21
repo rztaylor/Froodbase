@@ -27,7 +27,7 @@ var (
 // must have row-level security enabled.
 var recordTables = []string{
 	"knowledge_area", "entity", "entity_name", "assertion", "evidence", "claim_evidence",
-	"contribution", "contribution_claims", "revision", "audit_event", "support_event", "support_config", "derivation", "freshness_policy",
+	"contribution", "contribution_claims", "revision", "audit_event", "support_event", "support_config", "derivation", "freshness_policy", "review_flag", "review_sweep",
 }
 
 func ctxT(t *testing.T) context.Context {
@@ -241,6 +241,7 @@ func TestServiceRoleCannotBypassRLS(t *testing.T) {
 		{"update a support event", "update support_event set rationale = 'x'"},
 		{"delete evidence", "delete from evidence"},
 		{"delete an assertion", "delete from assertion"},
+		{"delete a review flag", "delete from review_flag"},
 		{"write the service default config", "insert into support_config (area_id, version, event_weights, use_without_challenge_cap, threshold_by_kind, allowed_contributors) values (null, 'x', '{}', 0, '{}', '{}')"},
 	}
 	for _, tt := range tests {

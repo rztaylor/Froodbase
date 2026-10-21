@@ -11,10 +11,11 @@
 // wider than the source's, no secrets), corroboration and distinct roots, the
 // support projection under a configuration (TR-29, TR-43), and the two
 // clocks: scope keys and overlap (TR-26), the current, as_of and historical
-// mode predicate with each record's status relative to now, and the stale
-// rule under an area's freshness policy (TR-31 to TR-34, TR-53).
+// mode predicate with each record's status relative to now, the stale
+// rule under an area's freshness policy (TR-31 to TR-34, TR-53), and when a
+// record is due for review (PR-33).
 // Constructors set recorded_at and never derive validity from it. The
-// shared case tables for overlap and modes live in domaintest so the SQL
+// shared case tables for overlap, modes and review dates live in domaintest so the SQL
 // functions are checked against the same truth. Relationships, lessons and
 // lifecycle transitions arrive in later slices.
 //
@@ -23,6 +24,6 @@
 // which callers supply. It imports only the standard library.
 //
 // Requirements: PR-01, PR-03, PR-06, PR-10 to PR-13, PR-15, PR-20 to PR-27,
-// PR-41, PR-42, TR-20, TR-22, TR-24 to TR-26, TR-29 to TR-34, TR-43, TR-44,
+// PR-33, PR-41, PR-42, TR-20, TR-22, TR-24 to TR-26, TR-29 to TR-34, TR-43, TR-44,
 // TR-53, TR-61.
 package domain

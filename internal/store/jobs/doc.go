@@ -7,7 +7,8 @@
 // job needs and its uniqueness rule; the behaviour lives in internal/dreamer.
 // Job kinds: heartbeat (slice 0), index_record and rebuild_index (slice 1,
 // enqueued by the store's writer), and reconsider_derived (slice 1b,
-// enqueued by the writer when a record with dependants gains a root).
-// Later slices add review_sweep and gap_scan. Depends on River's types
+// enqueued by the writer when a record with dependants gains a root), and
+// review_sweep (slice 2, periodic, unique per schedule slot). Later slices
+// add gap_scan. Depends on River's types
 // only; nothing inside the module.
 package jobs

@@ -3,6 +3,7 @@ package config
 import (
 	"strings"
 	"testing"
+	"time"
 )
 
 func mapLookup(m map[string]string) Lookup {
@@ -111,6 +112,52 @@ func TestLoadDreamer(t *testing.T) {
 	_, err = LoadDreamer(mapLookup(map[string]string{}))
 	if err == nil || !strings.Contains(err.Error(), "FROODBASE_DATABASE_URL is not set") {
 		t.Fatalf("LoadDreamer() with no URL: error = %v, want 'is not set'", err)
+	}
+}
+
+func TestLoadDreamerReviewSweepInterval(t *testing.T) {
+	tests := []struct {
+		name    string
+		value   string
+		set     bool
+		want    time.Duration
+		wantErr string
+	}{
+		{"unset uses the default", "", false, DefaultReviewSweepInterval, ""},
+		{"empty uses the default", "", true, DefaultReviewSweepInterval, ""},
+		{"fifteen minutes", "15m", true, 15 * time.Minute, ""},
+		{"the minimum", "1m", true, time.Minute, ""},
+		{"the maximum", "24h", true, 24 * time.Hour, ""},
+		{"surrounding spaces", " 2h ", true, 2 * time.Hour, ""},
+		{"below the minimum", "30s", true, 0, "FROODBASE_REVIEW_SWEEP_INTERVAL must be between 1m0s and 24h0m0s"},
+		{"above the maximum", "25h", true, 0, "FROODBASE_REVIEW_SWEEP_INTERVAL must be between 1m0s and 24h0m0s"},
+		{"negative", "-1h", true, 0, "must be between"},
+		{"a bare number", "60", true, 0, "FROODBASE_REVIEW_SWEEP_INTERVAL must be a duration such as 1h or 30m"},
+		{"nonsense", "hourly", true, 0, "must be a duration"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			env := map[string]string{EnvDatabaseURL: goodURL}
+			if tt.set {
+				env[EnvReviewSweepInterval] = tt.value
+			}
+			got, err := LoadDreamer(mapLookup(env))
+			if tt.wantErr != "" {
+				if err == nil || !strings.Contains(err.Error(), tt.wantErr) {
+					t.Fatalf("LoadDreamer() error = %v, want %q", err, tt.wantErr)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("LoadDreamer() error = %v", err)
+			}
+			if got.ReviewSweepInterval != tt.want {
+				t.Errorf("ReviewSweepInterval = %v, want %v", got.ReviewSweepInterval, tt.want)
+			}
+		})
+	}
+	if DefaultReviewSweepInterval != time.Hour {
+		t.Errorf("DefaultReviewSweepInterval = %v, want 1h (documented in docs/dev/ops/development.md)", DefaultReviewSweepInterval)
 	}
 }
 

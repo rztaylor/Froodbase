@@ -90,7 +90,7 @@ func TestReconsiderDerivedIsWorked(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	d, err := New(slog.New(slog.NewTextHandler(io.Discard, nil)), pool)
+	d, err := New(slog.New(slog.NewTextHandler(io.Discard, nil)), pool, testSchedule)
 	if err != nil {
 		t.Fatal(err)
 	}

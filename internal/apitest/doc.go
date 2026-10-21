@@ -11,5 +11,5 @@
 // Tests only; nothing in the binaries imports it. Depends on
 // internal/apihandlers, internal/authz/staticusers, internal/client,
 // internal/dreamer, internal/httpserver, internal/mcpserver,
-// internal/store/storetest and internal/version.
+// internal/store (with store/jobs and store/storetest) and internal/version.
 package apitest

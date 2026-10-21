@@ -76,7 +76,7 @@ func TestIndexJobsKeepProjectionsCurrent(t *testing.T) {
 		t.Fatalf("pending index jobs for the entity = %d, want 1 (burst collapsed)", pending)
 	}
 
-	d, err := New(slog.New(slog.NewTextHandler(io.Discard, nil)), pool)
+	d, err := New(slog.New(slog.NewTextHandler(io.Discard, nil)), pool, testSchedule)
 	if err != nil {
 		t.Fatal(err)
 	}

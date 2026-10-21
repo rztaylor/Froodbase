@@ -112,7 +112,7 @@ func (s *Service) GetHistory(ctx context.Context, ac *authz.Context, in wire.Get
 
 // assertionRecord shapes an assertion with its support, citations and
 // derivations, labelled with the status and stale flag the SQL mode
-// predicate gave it.
+// predicate gave it and the review sweep's marks.
 func (s *Service) assertionRecord(ctx context.Context, caller store.Caller, a store.AssertionRecord, mode domain.ModeResult) (wire.Record, error) {
 	area, err := s.areas.AreaKey(ctx, a.Assertion.AreaID)
 	if err != nil {
@@ -137,12 +137,17 @@ func (s *Service) assertionRecord(ctx context.Context, caller store.Caller, a st
 	if err != nil {
 		return wire.Record{}, err
 	}
+	review, err := s.pool.ReviewFlags(ctx, caller, a.Assertion.ID)
+	if err != nil {
+		return wire.Record{}, err
+	}
 	rec := wire.Record{
 		ID: string(a.Assertion.ID), RecordType: store.RecordAssertion, Area: area, AreaID: string(a.Assertion.AreaID), Kind: string(a.Assertion.Kind),
 		LifecycleState: a.LifecycleState, Revision: a.Revision, Support: SupportSummary(a.SupportScore, a.SupportConfigVersion, events, cfg, a.Assertion.Kind),
 		Scope: scopeToWire(a.Assertion.Scope), ValidFrom: a.Assertion.ValidFrom, ValidTo: a.Assertion.ValidTo, ValidityUnknown: a.Assertion.ValidityUnknown(),
 		RecordedAt: a.Assertion.RecordedAt, VerifiedAt: a.Assertion.VerifiedAt, ReviewDueAt: a.Assertion.ReviewDueAt, NeedsReconsideration: a.NeedsReconsideration,
 		Status: string(mode.Status), Stale: mode.Stale,
+		DueForReview: review.DueForReview, StaleAt: review.StaleAt, ReviewSweptAt: review.SweptAt,
 		Subject: string(a.Assertion.SubjectEntityID), BodyMarkdown: a.Assertion.BodyMarkdown,
 	}
 	for _, ev := range evidence {

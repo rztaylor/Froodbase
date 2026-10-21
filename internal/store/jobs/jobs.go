@@ -31,6 +31,36 @@ func HeartbeatFor(t time.Time) HeartbeatArgs {
 	return HeartbeatArgs{ScheduledFor: t.UTC().Truncate(time.Minute)}
 }
 
+// KindReviewSweep is the periodic review sweep (PR-33, architecture design
+// section 9): the dreamer marks the records of every area that are due for
+// review or stale under their area's freshness policy, changing none of
+// them.
+const KindReviewSweep = "review_sweep"
+
+// ReviewSweepArgs is one review sweep. ScheduledFor is the start of the
+// schedule slot it belongs to and its uniqueness key in every state, so
+// schedulers inserting in the same slot produce one sweep. The sweep reads
+// the clock when it runs, not ScheduledFor.
+type ReviewSweepArgs struct {
+	ScheduledFor time.Time `json:"scheduled_for" river:"unique"`
+}
+
+// Kind implements river.JobArgs.
+func (ReviewSweepArgs) Kind() string { return KindReviewSweep }
+
+// InsertOpts makes the sweep unique per schedule slot.
+func (ReviewSweepArgs) InsertOpts() river.InsertOpts {
+	return river.InsertOpts{UniqueOpts: river.UniqueOpts{ByArgs: true}}
+}
+
+// ReviewSweepFor builds the sweep for the slot of the given interval that
+// contains t; an interval under a minute counts as a minute. An on-demand
+// sweep passes the exact time instead, as its own slot.
+func ReviewSweepFor(t time.Time, interval time.Duration) ReviewSweepArgs {
+	interval = max(interval, time.Minute)
+	return ReviewSweepArgs{ScheduledFor: t.UTC().Truncate(interval)}
+}
+
 // KindIndexRecord is the index-maintenance job enqueued in the transaction
 // that writes a record (the outbox pattern, D5): the dreamer refreshes
 // whatever search structures the record's revision needs.

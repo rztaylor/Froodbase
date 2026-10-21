@@ -143,3 +143,13 @@ func Classify(r ModeRecord, q Query, policy FreshnessPolicy, now time.Time) Mode
 		Stale:    status == StatusCurrent && policy.Stale(r.Kind, r.Temporal, now),
 	}
 }
+
+// DueForReview reports whether the record is due for review at now: it is
+// in force and the review date someone set for it has come (PR-33,
+// architecture design section 9). Age alone never makes a record due, and
+// being due changes nothing about it: the review sweep marks it so a
+// reviewer can find it. Validity plays no part; a record no longer in force
+// needs no review.
+func (r ModeRecord) DueForReview(now time.Time) bool {
+	return r.State.InForce() && r.ReviewDueAt != nil && !now.Before(*r.ReviewDueAt)
+}

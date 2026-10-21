@@ -363,6 +363,15 @@ The health endpoint on `FROODBASE_DREAMER_ADDR` reports the queue depth (jobs wa
 
 Slice 1b adds `reconsider_derived`, enqueued in the same transaction whenever a record that something is derived from gains an evidence root. It walks every record derived from it, transitively, sources first, each once even if links loop, and appends to each the roots its sources have and it has not counted; it stays in the record's area and writes support events and scores, never revisions. Several root additions to one record before the dreamer reaches it collapse into one job, which reads the sources' current state, and the job completes in the same transaction as the walk so a root added meanwhile is never lost. The health endpoint's `reconsider_waiting` counts the jobs waiting, and `make logs` shows a `reconsider_derived` line per walk with how many records it changed.
 
+Slice 2 adds `review_sweep`, a periodic job like the heartbeat: the leader inserts one at start and then every `FROODBASE_REVIEW_SWEEP_INTERVAL` (default one hour), unique per slot of that interval. It sweeps every area in turn, each with a caller holding that area alone, and marks beside each assertion whether it is due for review (in force and past its `review_due_at`) and, in `stale_at`, when a sweep first found it stale under the area's freshness policy (`freshness_policy`, the same rule as the live `stale` flag). It writes only `review_flag` and `review_sweep` (migration `00008_review_sweep.sql`), never a record, revision or support event, and only rows whose flags changed; `make logs` shows a `review_sweep` line per run and one per area with how many records are due and stale. `get_record` shows the marks as `due_for_review`, `stale_at` and `review_swept_at`. Run a sweep now, or inspect the marks:
+
+```bash
+docker compose run --rm --no-deps dreamer review-sweep
+docker compose exec -T postgres psql -U froodbase -d froodbase -c "select area_id, swept_at, records, due_count, stale_count from review_sweep"
+```
+
+No tool sets a review date or an area's freshness policy yet (slice 3's review tools will); to try the sweep locally, set them in `psql` as the owner, for example `update assertion set review_due_at = now() - interval '1 day' where id = '<id>'`, then run a sweep and read the record with `get_record`.
+
 Behaviour beyond the health endpoint and the dreamer's startup line arrives slice by slice per `docs/planning/07-local-mvp.md`. Running a binary from `bin/` outside Compose needs the two `FROODBASE_` variables the binaries read, below.
 
 ## Configuration
@@ -387,6 +396,7 @@ Read by the binaries (`internal/config`); Compose sets them for the containers:
 |---|---|---|
 | `FROODBASE_API_ADDR` | `:8080` | Listen address of `froodbase-api` |
 | `FROODBASE_DREAMER_ADDR` | `:8081` | Health listen address of `froodbase-dreamer` (queue depth) |
+| `FROODBASE_REVIEW_SWEEP_INTERVAL` | `1h` | How often `froodbase-dreamer` runs the review sweep, as a Go duration (`30m`, `6h`) from `1m` to `24h`; it also runs once at start. Compose passes it through from `.env` |
 | `FROODBASE_DATABASE_URL` | none, required | PostgreSQL connection URL (`postgres://user:password@host:port/db?sslmode=disable`) read by `froodbase-api` and `froodbase-dreamer` (as `froodbase_app`) and by `froodbase-api migrate` (as the owner); its value is never logged |
 | `FROODBASE_USERS_FILE` | none, required by `froodbase-api` | Path of the static users JSON file (Compose mounts `local/users.json` at `/etc/froodbase/users.json`) |
 

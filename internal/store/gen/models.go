@@ -141,6 +141,22 @@ type KnowledgeArea struct {
 	RecordedAt time.Time
 }
 
+type ReviewFlag struct {
+	RecordID     string
+	AreaID       string
+	DueForReview bool
+	StaleAt      *time.Time
+	UpdatedAt    time.Time
+}
+
+type ReviewSweep struct {
+	AreaID     string
+	SweptAt    time.Time
+	Records    int32
+	DueCount   int32
+	StaleCount int32
+}
+
 type Revision struct {
 	RecordID     string
 	RecordType   string
