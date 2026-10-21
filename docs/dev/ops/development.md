@@ -125,7 +125,7 @@ Without Claude Code you can drive the binary over stdin; the stream must stay op
 
 ## Five-minute walkthrough in Claude
 
-You speak plainly; Claude structures the calls. The repository skill `.claude/skills/froodbase-contribute/SKILL.md` teaches Claude how: it searches before creating, picks the evidence and assertion kinds, records deductions with their sources and commands as command evidence, adds a new source to a claim already recorded instead of recording the claim again, mints the idempotency key, leaves out what the server infers, and reports the ids it wrote. It asks you something only when a claim has nothing checkable behind it.
+You speak plainly; Claude structures the calls. The repository skill `.claude/skills/froodbase-contribute/SKILL.md` teaches Claude how: it searches before creating, picks the evidence and assertion kinds, records deductions with their sources and commands as command evidence, adds a new source to a claim already recorded instead of recording the claim again, records the findings in a document one by one with a citation to each section, mints the idempotency key, leaves out what the server infers, and reports the ids it wrote. It asks you something only when a claim has nothing checkable behind it.
 
 1. Start the stack and build the binaries:
 
@@ -143,8 +143,9 @@ You speak plainly; Claude structures the calls. The repository skill `.claude/sk
 9. Say the finding from step 4 again: Claude finds it by search and tells you it is already recorded instead of writing a duplicate. Ask it to retry its first call with the same idempotency key: `replayed: true` and the same ids, nothing written twice.
 10. Meanwhile `make logs` shows the dreamer's `index_record` lines for the records, and `curl -s http://127.0.0.1:8081/healthz` reports `index_stale: 0`.
 11. Register a second server entry as carol (reader) or use curl with `-u carol:froodbase-dev`: `get_record` and `search` work, `contribute` is refused with "contributor role required" and the refusal is in `audit_event`.
+12. Say: "Record the useful information in docs/dev/guides/sample-design-note.md." Claude cites the note at its commit, one section per finding, joins the import tool from step 4, and lists the open questions it did not record. "Recording the findings in a document" below walks through what it writes.
 
-`TestSlice1Exit`, `TestPlainContribution` and `TestEvidenceForExistingClaim` in `internal/apitest` run the same calls through the client `froodbase-mcp` uses (`make test-integration`); `TestPlainContribution` sends only the fields a plain request gives, and `TestEvidenceForExistingClaim` is step 6.
+`TestSlice1Exit`, `TestPlainContribution`, `TestEvidenceForExistingClaim` and `TestDocumentFindings` in `internal/apitest` run the same calls through the client `froodbase-mcp` uses (`make test-integration`); `TestPlainContribution` sends only the fields a plain request gives, `TestEvidenceForExistingClaim` is step 6 and `TestDocumentFindings` is step 12.
 
 ## Contributing knowledge and reading it back
 
@@ -209,6 +210,59 @@ curl -s -u bob:froodbase-dev -H 'Content-Type: application/json' -H 'Accept: app
 ```
 
 The same flow, with the dreamer strengthening an inference derived from the observation, a replay and the refusals, runs as `TestEvidenceForExistingClaim` in `internal/apitest`.
+
+### Recording the findings in a document
+
+A person can point Claude at a document and ask it to record what is useful in it. Froodbase never receives the document: reports and private files are never an input (PR-50 to PR-52), and `froodbase-mcp` reads no local files. Claude reads the document with its own tools and contributes its findings one by one, each citing where in the document it came from. The skill section "Recording the findings in a document" teaches it how.
+
+The worked example uses [`docs/dev/guides/sample-design-note.md`](../guides/sample-design-note.md), a short fictional design note about the import tool from the walkthrough. Run walkthrough step 4 first, so the area already knows the import tool and the work item's finding, then say in Claude Code: "Record the useful information in docs/dev/guides/sample-design-note.md."
+
+1. **The citation.** The note is committed, so the note is the source, cited at the last commit that changed it: Claude runs `git log -1 --format=%H -- docs/dev/guides/sample-design-note.md` and checks the commit is pushed (`git branch -r --contains <sha>`). The URL is `https://github.com/rztaylor/Froodbase/blob/<sha>/docs/dev/guides/sample-design-note.md`. The server infers `repository` and the revision from the SHA. If the file has uncommitted changes, or the commit is not pushed, nobody else could check that version, so Claude treats it as a local file (below).
+2. **Search first.** `search` for "Import Tool" finds the entity from step 4, so every finding about the tool uses its id. "Callback Gateway" finds nothing, so the change set creates it. "callbacks timeout" finds the work item's observation: the note's Background section only restates that work item, so it adds nothing and is not recorded again.
+3. **One change set.** The note is recorded once without a locator, followed by one evidence record per section cited (`Measurements`, `Analysis`, `Decision`), each naming the note as its `root`. Then the claims:
+
+   | Section | Claim | Kind | Rests on | Support |
+   |---|---|---|---|---|
+   | Measurements | Callbacks on 2.3.0 took 30.2 s in staging, against 1.1 s on 2.2.4 | observation | the section | 1 root, meets threshold |
+   | Measurements | The callback gateway gives up after three failed attempts | observation | the section | 1 root, meets threshold |
+   | Analysis | The 2.3 retry waits out the full timeout before each retry | inference | the recorded work-item observation and the measurement, plus the section | 2 roots (the work item and the note), meets threshold |
+   | Analysis | Slow retries probably make the gateway drop callbacks under load | inference | the measurement and the attempt limit, plus the section | 1 root (the note), below threshold |
+   | Decision | From 2.3.2 the timeout is capped at 5 s, retries back off from 1 s | decision | the section, derived from the cause; `valid_from` 2026-10-14, the date the note states | 2 roots, meets threshold |
+
+   Because every section names the note as its root, the note counts once: the gateway deduction rests on two of the note's own findings and still has one root. It needs a source outside the note to meet its threshold.
+4. **Not recorded.** The two open questions are not findings. Claude lists them in its report with the Background finding (already recorded as the work item's observation) and the ids it wrote.
+
+The call Claude builds (ids in angle brackets come from the search results):
+
+```json
+{
+  "area": "demo", "idempotency_key": "bob-sample-design-note", "rationale": "findings of the sample design note",
+  "entities": [{"ref": "gateway", "type": "service", "names": [{"name": "Callback Gateway"}]}],
+  "evidence": [
+    {"ref": "doc", "source_uri": "https://github.com/rztaylor/Froodbase/blob/<sha>/docs/dev/guides/sample-design-note.md"},
+    {"ref": "measurements", "source_uri": "<the same URL>", "locator": "Measurements", "root": "doc"},
+    {"ref": "analysis", "source_uri": "<the same URL>", "locator": "Analysis", "root": "doc"},
+    {"ref": "decision", "source_uri": "<the same URL>", "locator": "Decision", "root": "doc", "excerpt": "From version 2.3.2 the callback timeout is capped at 5 seconds"}
+  ],
+  "assertions": [
+    {"ref": "measured", "kind": "observation", "subject": "<import tool id>", "evidence": ["measurements"], "scope": {"environment": "staging", "version_min": "2.3.0", "version_max": "2.3.0"},
+     "body_markdown": "In staging, callbacks on 2.3.0 took 30.2 seconds on average over 200 imports, against 1.1 seconds on 2.2.4"},
+    {"ref": "attempts", "kind": "observation", "subject": "gateway", "evidence": ["measurements"], "body_markdown": "The callback gateway gives up on a callback after three failed attempts"},
+    {"ref": "cause", "kind": "inference", "subject": "<import tool id>", "evidence": ["analysis"], "derived_from": ["<work-item observation id>", "measured"],
+     "body_markdown": "The 2.3 retry waits out the full 30 second timeout before each retry"},
+    {"ref": "drops", "kind": "inference", "subject": "gateway", "evidence": ["analysis"], "derived_from": ["measured", "attempts"],
+     "body_markdown": "Slow retries on import tool 2.3 probably make the callback gateway drop callbacks under load"},
+    {"kind": "decision", "subject": "<import tool id>", "evidence": ["decision"], "derived_from": ["cause"], "valid_from": "2026-10-14T00:00:00Z", "scope": {"version_min": "2.3.2"},
+     "body_markdown": "From 2.3.2 the callback timeout is capped at 5 seconds and retries back off from 1 second"}
+  ]
+}
+```
+
+`get_record` on any of the claims returns its citation with the note's URL, the commit as `source_revision`, the section as `locator` and the note's evidence id as `root_evidence_id`; `get_history` on the gateway deduction shows a single `root_added` event for the note.
+
+The same document kept only on your computer (a copy outside the repository, a download, an unpushed draft) cannot be cited: a `file://` URL or a local path is refused as "local source is not a shareable citation". Claude cites what the document relied on instead: the work item it names, a command it quotes (run again and cited as command evidence), and, if you agree to state it yourself, your own knowledge as a statement. For example, notes naming work item 419 about dropped callbacks give the gateway deduction a second root under `links`, and it meets its threshold. Anything in the file with nothing checkable behind it is listed back to you and never stored with an invented citation.
+
+`TestDocumentFindings` in `internal/apitest` runs this example through the client, with a stand-in commit SHA, followed by the local-notes call and the refused `file://` citation.
 
 ### Facts from commands and from people
 
