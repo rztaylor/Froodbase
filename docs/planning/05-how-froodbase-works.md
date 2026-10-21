@@ -97,7 +97,7 @@ The analogy is a court again: an observation is eyewitness testimony, a decision
 
 **Provenance** is the chain of custody for a piece of knowledge. For every assertion, relationship or lesson Froodbase records:
 
-- The **source**: a link to something the reader can actually open, plus the exact revision (a commit, a ticket version, a query with its time window).
+- The **source**: something the reader can check, plus the exact revision: a link to a commit, a ticket version or a query with its time window; the resource a command looked at, the command and when it ran; or, for what a person knows from experience, that person and when they said it (which counts for less than an observed source).
 - The **contributor**: which person, and if an agent did the work, which agent on that person's behalf.
 - The **time** it was recorded.
 

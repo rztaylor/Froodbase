@@ -228,10 +228,13 @@ type allowedContributorsJSON struct {
 	SourceKinds []string `json:"source_kinds"`
 }
 
-func supportConfigFromRow(version string, weights, thresholds, allowed []byte, useCap float64) (domain.SupportConfig, error) {
+func supportConfigFromRow(version string, weights, rootWeights, thresholds, allowed []byte, useCap float64) (domain.SupportConfig, error) {
 	cfg := domain.SupportConfig{Version: version, UseWithoutChallengeCap: useCap}
 	if err := json.Unmarshal(weights, &cfg.EventWeights); err != nil {
 		return domain.SupportConfig{}, fmt.Errorf("store: decoding support config weights: %w", err)
+	}
+	if err := json.Unmarshal(rootWeights, &cfg.RootWeightBySourceKind); err != nil {
+		return domain.SupportConfig{}, fmt.Errorf("store: decoding support config root weights: %w", err)
 	}
 	if err := json.Unmarshal(thresholds, &cfg.ThresholdByKind); err != nil {
 		return domain.SupportConfig{}, fmt.Errorf("store: decoding support config thresholds: %w", err)
@@ -250,22 +253,25 @@ func supportConfigFromRow(version string, weights, thresholds, allowed []byte, u
 	return cfg, nil
 }
 
-func supportConfigToRow(cfg domain.SupportConfig) (weights, thresholds, allowed []byte, err error) {
+func supportConfigToRow(cfg domain.SupportConfig) (weights, rootWeights, thresholds, allowed []byte, err error) {
 	if err := cfg.Validate(); err != nil {
-		return nil, nil, nil, err
+		return nil, nil, nil, nil, err
 	}
 	if weights, err = json.Marshal(cfg.EventWeights); err != nil {
-		return nil, nil, nil, err
+		return nil, nil, nil, nil, err
+	}
+	if rootWeights, err = json.Marshal(cfg.RootWeightBySourceKind); err != nil {
+		return nil, nil, nil, nil, err
 	}
 	if thresholds, err = json.Marshal(cfg.ThresholdByKind); err != nil {
-		return nil, nil, nil, err
+		return nil, nil, nil, nil, err
 	}
 	ac := allowedContributorsJSON{Classes: cfg.AllowedContributors.Classes, SourceKinds: make([]string, 0, len(cfg.AllowedContributors.SourceKinds))}
 	for _, k := range cfg.AllowedContributors.SourceKinds {
 		ac.SourceKinds = append(ac.SourceKinds, string(k))
 	}
 	if allowed, err = json.Marshal(ac); err != nil {
-		return nil, nil, nil, err
+		return nil, nil, nil, nil, err
 	}
-	return weights, thresholds, allowed, nil
+	return weights, rootWeights, thresholds, allowed, nil
 }

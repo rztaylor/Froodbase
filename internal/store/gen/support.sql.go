@@ -11,7 +11,7 @@ import (
 )
 
 const currentSupportConfig = `-- name: CurrentSupportConfig :one
-SELECT id, area_id, version, event_weights, use_without_challenge_cap, threshold_by_kind, allowed_contributors, recorded_at
+SELECT id, area_id, version, event_weights, use_without_challenge_cap, threshold_by_kind, allowed_contributors, recorded_at, root_weight_by_source_kind
 FROM support_config
 WHERE area_id = $1::uuid OR area_id IS NULL
 ORDER BY (area_id IS NULL), recorded_at DESC
@@ -31,13 +31,14 @@ func (q *Queries) CurrentSupportConfig(ctx context.Context, areaID string) (Supp
 		&i.ThresholdByKind,
 		&i.AllowedContributors,
 		&i.RecordedAt,
+		&i.RootWeightBySourceKind,
 	)
 	return i, err
 }
 
 const insertSupportConfig = `-- name: InsertSupportConfig :exec
-INSERT INTO support_config (area_id, version, event_weights, use_without_challenge_cap, threshold_by_kind, allowed_contributors, recorded_at)
-VALUES ($1, $2, $3, $4, $5, $6, $7)
+INSERT INTO support_config (area_id, version, event_weights, use_without_challenge_cap, threshold_by_kind, allowed_contributors, recorded_at, root_weight_by_source_kind)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
 `
 
 type InsertSupportConfigParams struct {
@@ -48,6 +49,7 @@ type InsertSupportConfigParams struct {
 	ThresholdByKind        []byte
 	AllowedContributors    []byte
 	RecordedAt             time.Time
+	RootWeightBySourceKind []byte
 }
 
 func (q *Queries) InsertSupportConfig(ctx context.Context, arg InsertSupportConfigParams) error {
@@ -59,13 +61,14 @@ func (q *Queries) InsertSupportConfig(ctx context.Context, arg InsertSupportConf
 		arg.ThresholdByKind,
 		arg.AllowedContributors,
 		arg.RecordedAt,
+		arg.RootWeightBySourceKind,
 	)
 	return err
 }
 
 const insertSupportEvent = `-- name: InsertSupportEvent :exec
-INSERT INTO support_event (record_id, record_type, area_id, event_type, evidence_root_ids, scope, actor_user_id, actor_agent_id, job_name, config_version, rationale, at)
-VALUES ($1, 'assertion', $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+INSERT INTO support_event (record_id, record_type, area_id, event_type, evidence_root_ids, scope, actor_user_id, actor_agent_id, job_name, config_version, rationale, at, source_kind)
+VALUES ($1, 'assertion', $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
 `
 
 type InsertSupportEventParams struct {
@@ -80,6 +83,7 @@ type InsertSupportEventParams struct {
 	ConfigVersion   string
 	Rationale       string
 	At              time.Time
+	SourceKind      *string
 }
 
 func (q *Queries) InsertSupportEvent(ctx context.Context, arg InsertSupportEventParams) error {
@@ -95,12 +99,13 @@ func (q *Queries) InsertSupportEvent(ctx context.Context, arg InsertSupportEvent
 		arg.ConfigVersion,
 		arg.Rationale,
 		arg.At,
+		arg.SourceKind,
 	)
 	return err
 }
 
 const listSupportEvents = `-- name: ListSupportEvents :many
-SELECT id, record_id, record_type, area_id, event_type, evidence_root_ids, scope, actor_user_id, actor_agent_id, job_name, config_version, rationale, at
+SELECT id, record_id, record_type, area_id, event_type, evidence_root_ids, scope, actor_user_id, actor_agent_id, job_name, config_version, rationale, at, source_kind
 FROM support_event WHERE record_id = $1 ORDER BY at, id
 `
 
@@ -127,7 +132,43 @@ func (q *Queries) ListSupportEvents(ctx context.Context, recordID string) ([]Sup
 			&i.ConfigVersion,
 			&i.Rationale,
 			&i.At,
+			&i.SourceKind,
 		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listSupportRootSources = `-- name: ListSupportRootSources :many
+SELECT se.evidence_root_ids[1]::uuid AS root_id, coalesce(e.source_kind, '')::text AS source_kind, coalesce(e.source_uri, '')::text AS source_uri
+FROM support_event se LEFT JOIN evidence e ON e.id = se.evidence_root_ids[1]
+WHERE se.record_id = $1 AND se.event_type = 'root_added'
+ORDER BY 1
+`
+
+type ListSupportRootSourcesRow struct {
+	RootID     string
+	SourceKind string
+	SourceUri  string
+}
+
+// Each root a claim has, with its evidence's kind and source URI (empty if
+// the evidence cannot be read).
+func (q *Queries) ListSupportRootSources(ctx context.Context, recordID string) ([]ListSupportRootSourcesRow, error) {
+	rows, err := q.db.Query(ctx, listSupportRootSources, recordID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListSupportRootSourcesRow{}
+	for rows.Next() {
+		var i ListSupportRootSourcesRow
+		if err := rows.Scan(&i.RootID, &i.SourceKind, &i.SourceUri); err != nil {
 			return nil, err
 		}
 		items = append(items, i)
@@ -164,7 +205,7 @@ func (q *Queries) ListSupportRoots(ctx context.Context, recordID string) ([]stri
 }
 
 const supportConfigVersion = `-- name: SupportConfigVersion :one
-SELECT id, area_id, version, event_weights, use_without_challenge_cap, threshold_by_kind, allowed_contributors, recorded_at
+SELECT id, area_id, version, event_weights, use_without_challenge_cap, threshold_by_kind, allowed_contributors, recorded_at, root_weight_by_source_kind
 FROM support_config
 WHERE version = $1 AND (area_id = $2::uuid OR area_id IS NULL)
 ORDER BY (area_id IS NULL)
@@ -190,6 +231,7 @@ func (q *Queries) SupportConfigVersion(ctx context.Context, arg SupportConfigVer
 		&i.ThresholdByKind,
 		&i.AllowedContributors,
 		&i.RecordedAt,
+		&i.RootWeightBySourceKind,
 	)
 	return i, err
 }

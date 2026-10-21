@@ -35,9 +35,21 @@ type EntityInput struct {
 	Names []Name `json:"names"`
 }
 
-// EvidenceInput is a citation of a shareable source to record. Root, when
-// set, is the ref or id of the original observation this evidence restates,
-// so corroboration counts it once (PR-12).
+// EvidenceInput is a citation, checkable by the area's audience, to record.
+// Root, when set, is the ref or id of the original observation this
+// evidence restates, so corroboration counts it once (PR-12).
+//
+// Source kinds repository, ticket, telemetry_query and document cite an
+// https URL at a revision. A command observation (source_kind command) cites
+// what was observed as source_uri (azure:///subscriptions/..., the ARM id;
+// k8s://<cluster>/<namespace>/<kind>/<name>; sql://<server>/<database>;
+// host://<name>), the exact command or query with secrets removed as
+// locator, when it ran as observed_at and optionally the output relied on as
+// excerpt. A statement (source_kind statement) records what the caller
+// knows: source_uri person://<their user id> (filled in when empty), what
+// they said as excerpt and when as observed_at. Both default
+// source_revision to observed_at. Anything that looks like a secret is
+// refused.
 type EvidenceInput struct {
 	Ref            string     `json:"ref"`
 	SourceKind     string     `json:"source_kind"`
@@ -99,16 +111,27 @@ type ContributeInput struct {
 }
 
 // Support is a claim's earned support (PR-15, TR-14): the score, the
-// configuration version it was computed under, the counts behind it and
+// configuration version it was computed under, the counts behind it, its
+// roots by source kind with the weight the configuration gives each, and
 // whether it meets the area's threshold for the claim's kind.
 type Support struct {
-	Score          float64 `json:"score"`
-	ConfigVersion  string  `json:"config_version"`
-	Roots          int     `json:"roots"`
-	Verifications  int     `json:"verifications"`
-	Outcomes       int     `json:"outcomes"`
-	Events         int     `json:"events"`
-	MeetsThreshold bool    `json:"meets_threshold"`
+	Score             float64      `json:"score"`
+	ConfigVersion     string       `json:"config_version"`
+	Roots             int          `json:"roots"`
+	RootsBySourceKind []RootWeight `json:"roots_by_source_kind,omitempty"`
+	Verifications     int          `json:"verifications"`
+	Outcomes          int          `json:"outcomes"`
+	Events            int          `json:"events"`
+	MeetsThreshold    bool         `json:"meets_threshold"`
+}
+
+// RootWeight is how many of a claim's roots are of one source kind and what
+// each root of that kind weighs (1 counts in full). SourceKind is empty for
+// roots recorded before kinds were.
+type RootWeight struct {
+	SourceKind string  `json:"source_kind,omitempty"`
+	Roots      int     `json:"roots"`
+	Weight     float64 `json:"weight"`
 }
 
 // Written is one record a contribution wrote, with what an agent needs to
@@ -136,7 +159,9 @@ type GetRecordInput struct {
 	ID string `json:"id"`
 }
 
-// Citation is evidence as cited by a claim (PR-11, TR-24).
+// Citation is evidence as cited by a claim (PR-11, TR-24). For a command
+// observation Locator is the command run and ObservedAt when; for a
+// statement SourceURI names the person and Excerpt what they said.
 type Citation struct {
 	EvidenceID     string     `json:"evidence_id"`
 	SourceKind     string     `json:"source_kind"`

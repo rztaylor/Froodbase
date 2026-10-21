@@ -62,6 +62,9 @@ type ContributionResult struct {
 	// Roots is the number of distinct evidence roots behind each assertion,
 	// cited directly or inherited from its sources.
 	Roots map[domain.ID]int `json:"roots"`
+	// RootKinds counts each assertion's roots by source kind. Results stored
+	// before it existed lack it.
+	RootKinds map[domain.ID]map[domain.SourceKind]int `json:"root_kinds,omitempty"`
 	// ConfigVersion is the support configuration the scores were projected under.
 	ConfigVersion string `json:"config_version"`
 	// Written lists every record in the order written.
@@ -114,7 +117,7 @@ func (p *Pool) Contribute(ctx context.Context, caller Caller, c Contribution) (*
 	if err != nil {
 		return nil, err
 	}
-	res := &ContributionResult{ContributionID: c.Contribution.ID, Scores: make(map[domain.ID]float64, len(c.Assertions)), Roots: make(map[domain.ID]int, len(c.Assertions))}
+	res := &ContributionResult{ContributionID: c.Contribution.ID, Scores: make(map[domain.ID]float64, len(c.Assertions)), Roots: make(map[domain.ID]int, len(c.Assertions)), RootKinds: make(map[domain.ID]map[domain.SourceKind]int, len(c.Assertions))}
 	err = p.inTx(ctx, caller, func(ctx context.Context, tx pgx.Tx, q *gen.Queries) error {
 		now := p.now().UTC()
 		area := string(c.Contribution.AreaID)
@@ -160,7 +163,13 @@ func (p *Pool) Contribute(ctx context.Context, caller Caller, c Contribution) (*
 				return err
 			}
 			res.Scores[a.ID] = score
-			res.Roots[a.ID] = roots
+			for _, r := range roots {
+				res.Roots[a.ID] += r.Roots
+				if res.RootKinds[a.ID] == nil {
+					res.RootKinds[a.ID] = map[domain.SourceKind]int{}
+				}
+				res.RootKinds[a.ID][r.Kind] = r.Roots
+			}
 			res.Written = append(res.Written, WrittenRecord{Ref: c.Refs[a.ID], ID: a.ID, RecordType: RecordAssertion, Kind: string(a.Kind)})
 		}
 		if c.Idempotency != nil {
@@ -387,7 +396,7 @@ func (p *Pool) PutSupportConfig(ctx context.Context, caller Caller, areaID domai
 	if err := areaID.Validate(); err != nil {
 		return fmt.Errorf("area id: %w", err)
 	}
-	weights, thresholds, allowed, err := supportConfigToRow(cfg)
+	weights, rootWeights, thresholds, allowed, err := supportConfigToRow(cfg)
 	if err != nil {
 		return err
 	}
@@ -395,7 +404,7 @@ func (p *Pool) PutSupportConfig(ctx context.Context, caller Caller, areaID domai
 		area := string(areaID)
 		return q.InsertSupportConfig(ctx, gen.InsertSupportConfigParams{
 			AreaID: &area, Version: cfg.Version, EventWeights: weights, UseWithoutChallengeCap: cfg.UseWithoutChallengeCap,
-			ThresholdByKind: thresholds, AllowedContributors: allowed, RecordedAt: p.now().UTC(),
+			ThresholdByKind: thresholds, AllowedContributors: allowed, RecordedAt: p.now().UTC(), RootWeightBySourceKind: rootWeights,
 		})
 	})
 }
@@ -533,38 +542,37 @@ func (p *Pool) resolveEvidence(ctx context.Context, q *gen.Queries, written map[
 // one root_added event per distinct root it cites or inherits and its
 // revision. A source must be an assertion written earlier in this
 // contribution (in assertions) or one the area already holds. It returns the
-// score and the number of distinct roots.
+// score and the claim's distinct roots by source kind.
 func (p *Pool) insertAssertion(ctx context.Context, tx pgx.Tx, q *gen.Queries, caller Caller, a domain.Assertion, evidence []domain.Evidence,
-	derivations []domain.Derivation, assertions map[domain.ID]domain.Assertion, cfg domain.SupportConfig, rationale string, now time.Time) (float64, int, error) {
+	derivations []domain.Derivation, assertions map[domain.ID]domain.Assertion, cfg domain.SupportConfig, rationale string, now time.Time) (float64, []domain.RootKindSupport, error) {
 	id := string(a.ID)
 	if err := q.InsertAssertion(ctx, gen.InsertAssertionParams{
 		ID: id, AreaID: string(a.AreaID), SubjectEntityID: string(a.SubjectEntityID), EpistemicKind: string(a.Kind), BodyMarkdown: a.BodyMarkdown,
 		Scope: scopeBytes(a.Scope), ValidFrom: utcPtr(a.ValidFrom), ValidTo: utcPtr(a.ValidTo), RecordedAt: a.RecordedAt.UTC(), VerifiedAt: utcPtr(a.VerifiedAt),
 		ReviewDueAt: utcPtr(a.ReviewDueAt), LifecycleState: LifecycleActive, SupportScore: 0, SupportConfigVersion: cfg.Version, UpdatedAt: now,
 	}); err != nil {
-		return 0, 0, err
+		return 0, nil, err
 	}
 	cur, err := q.GetAssertion(ctx, id)
 	if err != nil {
-		return 0, 0, err
+		return 0, nil, err
 	}
 	sourceRoots, err := p.insertDerivations(ctx, q, cur, derivations, assertions)
 	if err != nil {
-		return 0, 0, err
+		return 0, nil, err
 	}
 	if err := insertClaimEvidence(ctx, q, cur, evidence); err != nil {
-		return 0, 0, err
+		return 0, nil, err
 	}
-	origins := domain.DerivedRoots(evidence, sourceRoots)
-	score, err := p.addRoots(ctx, q, caller, cur, origins, cfg, rationale, now)
+	score, events, err := p.addRoots(ctx, q, caller, cur, domain.DerivedRoots(evidence, sourceRoots), cfg, rationale, now)
 	if err != nil {
-		return 0, 0, err
+		return 0, nil, err
 	}
 	snap, err := assertionSnapshotBytes(AssertionRecord{Assertion: a, LifecycleState: LifecycleActive, Revision: 1})
 	if err != nil {
-		return 0, 0, err
+		return 0, nil, err
 	}
-	return score, len(origins), p.recordChange(ctx, tx, q, caller, change{
+	return score, domain.RootsBySourceKind(events, cfg), p.recordChange(ctx, tx, q, caller, change{
 		recordID: id, recordType: RecordAssertion, areaID: string(a.AreaID), revision: 1,
 		snapshot: snap, audit: AuditAssertionCreated, rationale: rationale, index: true,
 	}, now)
@@ -612,7 +620,8 @@ func (p *Pool) linkEvidence(ctx context.Context, q *gen.Queries, caller Caller, 
 	if err := insertClaimEvidence(ctx, q, cur, evidence); err != nil {
 		return 0, err
 	}
-	return p.addRoots(ctx, q, caller, cur, domain.DerivedRoots(evidence, nil), cfg, rationale, now)
+	score, _, err := p.addRoots(ctx, q, caller, cur, domain.DerivedRoots(evidence, nil), cfg, rationale, now)
+	return score, err
 }
 
 func insertClaimEvidence(ctx context.Context, q *gen.Queries, cur gen.GetAssertionRow, evidence []domain.Evidence) error {
@@ -625,67 +634,89 @@ func insertClaimEvidence(ctx context.Context, q *gen.Queries, cur gen.GetAsserti
 }
 
 // addRoots appends a root_added event for each root the claim has not seen,
-// with the rationale its origin gives (the contribution's for a root cited
-// directly, the sources for one inherited), re-projects the score from every
-// event under cfg and stores it.
-func (p *Pool) addRoots(ctx context.Context, q *gen.Queries, caller Caller, cur gen.GetAssertionRow, origins []domain.RootOrigin, cfg domain.SupportConfig, rationale string, now time.Time) (float64, error) {
-	known, err := q.ListSupportRoots(ctx, cur.ID)
+// carrying the root's source kind and the rationale its origin gives (the
+// contribution's for a root cited directly, the sources for one inherited),
+// re-projects the score from every event under cfg and stores it. A
+// person's statements count as one root per claim: a statement root whose
+// person the claim already has a statement root from adds nothing, as
+// repeating oneself earns nothing (PR-15). It returns the score and the
+// claim's events.
+func (p *Pool) addRoots(ctx context.Context, q *gen.Queries, caller Caller, cur gen.GetAssertionRow, origins []domain.RootOrigin, cfg domain.SupportConfig, rationale string, now time.Time) (float64, []domain.SupportEvent, error) {
+	known, err := q.ListSupportRootSources(ctx, cur.ID)
 	if err != nil {
-		return 0, err
+		return 0, nil, err
 	}
 	seen := make(map[domain.ID]bool, len(known))
+	people := map[string]bool{}
 	for _, r := range known {
-		seen[domain.ID(r)] = true
+		seen[domain.ID(r.RootID)] = true
+		if domain.SourceKind(r.SourceKind) == domain.SourceStatement {
+			people[r.SourceUri] = true
+		}
 	}
 	scope, err := scopeFromBytes(cur.Scope)
 	if err != nil {
-		return 0, err
+		return 0, nil, err
 	}
 	for _, o := range origins {
 		if seen[o.Root] {
 			continue
 		}
+		root, err := q.GetEvidence(ctx, string(o.Root))
+		if err != nil {
+			return 0, nil, fmt.Errorf("evidence root %s: %w", o.Root, mapErr(err))
+		}
+		kind := domain.SourceKind(root.SourceKind)
+		if kind == domain.SourceStatement {
+			if people[root.SourceUri] {
+				continue
+			}
+			people[root.SourceUri] = true
+		}
 		e := domain.SupportEvent{
-			Type: domain.SupportRootAdded, EvidenceRootIDs: []domain.ID{o.Root}, Scope: scope, ActorUserID: domain.ID(caller.UserID),
+			Type: domain.SupportRootAdded, EvidenceRootIDs: []domain.ID{o.Root}, SourceKind: kind, Scope: scope, ActorUserID: domain.ID(caller.UserID),
 			ActorAgentID: domain.ID(caller.AgentID), ConfigVersion: cfg.Version, Rationale: o.Rationale(rationale), At: now,
 		}
 		if err := e.Validate(); err != nil {
-			return 0, err
+			return 0, nil, err
 		}
+		k := string(kind)
 		if err := q.InsertSupportEvent(ctx, gen.InsertSupportEventParams{
 			RecordID: cur.ID, AreaID: cur.AreaID, EventType: string(e.Type), EvidenceRootIds: []string{string(o.Root)}, Scope: scopeBytes(scope),
 			ActorUserID: optional(caller.UserID), ActorAgentID: caller.agentID(), JobName: nil, ConfigVersion: cfg.Version, Rationale: e.Rationale, At: now,
+			SourceKind: &k,
 		}); err != nil {
-			return 0, err
+			return 0, nil, err
 		}
+		seen[o.Root] = true
 	}
 	rows, err := q.ListSupportEvents(ctx, cur.ID)
 	if err != nil {
-		return 0, err
+		return 0, nil, err
 	}
 	events := make([]domain.SupportEvent, 0, len(rows))
 	for _, r := range rows {
 		ev, err := supportEventFromRow(r)
 		if err != nil {
-			return 0, err
+			return 0, nil, err
 		}
 		events = append(events, ev)
 	}
 	score, err := domain.SupportScore(events, cfg)
 	if err != nil {
-		return 0, err
+		return 0, nil, err
 	}
 	n, err := q.UpdateAssertionSupport(ctx, gen.UpdateAssertionSupportParams{
 		ID: cur.ID, SupportScore: score, SupportConfigVersion: cfg.Version,
 		NeedsReconsideration: !cfg.MeetsThreshold(domain.EpistemicKind(cur.EpistemicKind), score) && cur.NeedsReconsideration,
 	})
 	if err != nil {
-		return 0, err
+		return 0, nil, err
 	}
 	if n == 0 {
-		return 0, ErrNotFound
+		return 0, nil, ErrNotFound
 	}
-	return score, nil
+	return score, events, nil
 }
 
 func (p *Pool) currentSupportConfig(ctx context.Context, q *gen.Queries, areaID string) (domain.SupportConfig, error) {
@@ -693,7 +724,7 @@ func (p *Pool) currentSupportConfig(ctx context.Context, q *gen.Queries, areaID 
 	if err != nil {
 		return domain.SupportConfig{}, fmt.Errorf("store: reading support config: %w", mapErr(err))
 	}
-	return supportConfigFromRow(row.Version, row.EventWeights, row.ThresholdByKind, row.AllowedContributors, row.UseWithoutChallengeCap)
+	return supportConfigFromRow(row.Version, row.EventWeights, row.RootWeightBySourceKind, row.ThresholdByKind, row.AllowedContributors, row.UseWithoutChallengeCap)
 }
 
 func optional(s string) *string {

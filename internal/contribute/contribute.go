@@ -58,6 +58,9 @@ func (s *Service) Contribute(ctx context.Context, ac *authz.Context, in wire.Con
 	if err := validateInput(in); err != nil {
 		return wire.ContributeOutput{}, err
 	}
+	if err := attributeStatements(&in, ac); err != nil {
+		return wire.ContributeOutput{}, err
+	}
 	caller, err := CallerFor(ctx, s.areas, ac)
 	if err != nil {
 		return wire.ContributeOutput{}, err
@@ -153,7 +156,7 @@ func (s *Service) build(ctx context.Context, caller store.Caller, ac *authz.Cont
 		rec := domain.Evidence{
 			ID: id, AreaID: areaID, SourceKind: domain.SourceKind(ev.SourceKind), SourceURI: ev.SourceURI, SourceRevision: ev.SourceRevision,
 			SourceLocator: ev.Locator, Excerpt: ev.Excerpt, AccessClass: domain.AccessClass(ev.AccessClass), ObservedAt: ev.ObservedAt, RecordedAt: now,
-		}
+		}.WithDefaults()
 		if ev.Root != "" {
 			root, ok := ids[ev.Root]
 			if !ok {
@@ -237,7 +240,7 @@ func (s *Service) output(ctx context.Context, caller store.Caller, areaID domain
 			score := res.Scores[w.ID]
 			rec.Support = &wire.Support{
 				Score: score, ConfigVersion: res.ConfigVersion, Roots: res.Roots[w.ID], Events: res.Roots[w.ID],
-				MeetsThreshold: cfg.MeetsThreshold(kind, score),
+				RootsBySourceKind: RootWeightsToWire(domain.SummariseRoots(res.RootKinds[w.ID], cfg)), MeetsThreshold: cfg.MeetsThreshold(kind, score),
 			}
 		}
 		if w.RecordType == store.RecordEvidence {
@@ -246,6 +249,18 @@ func (s *Service) output(ctx context.Context, caller store.Caller, areaID domain
 		out.Records = append(out.Records, rec)
 	}
 	return out, nil
+}
+
+// RootWeightsToWire is the wire form of a claim's roots by source kind.
+func RootWeightsToWire(roots []domain.RootKindSupport) []wire.RootWeight {
+	if len(roots) == 0 {
+		return nil
+	}
+	out := make([]wire.RootWeight, len(roots))
+	for i, r := range roots {
+		out[i] = wire.RootWeight{SourceKind: string(r.Kind), Roots: r.Roots, Weight: r.Weight}
+	}
+	return out
 }
 
 func validateInput(in wire.ContributeInput) error {
@@ -326,6 +341,36 @@ func validateInput(in wire.ContributeInput) error {
 	}
 	if _, err := domain.OrderByDerivation(ids, links); err != nil {
 		return fmt.Errorf("%w: derived_from refs loop (%v); a record cannot be derived, directly or through others, from itself", ErrInvalidInput, err)
+	}
+	return nil
+}
+
+// attributeStatements checks that every statement in the call is the
+// caller's own: a person can only record what they themself said, so its
+// source is person://<the caller's user id>, filled in when left empty. A
+// call with no person behind it (an agent acting alone) cannot record a
+// statement at all.
+func attributeStatements(in *wire.ContributeInput, ac *authz.Context) error {
+	in.Evidence = append([]wire.EvidenceInput(nil), in.Evidence...) // never write into the caller's slice
+	for i, ev := range in.Evidence {
+		if ev.SourceKind != string(domain.SourceStatement) {
+			continue
+		}
+		if strings.TrimSpace(ac.UserID) == "" {
+			return fmt.Errorf("%w: statement %q: there is no person behind this call; a statement records what a named person said, so an agent acting alone cannot record one", ErrInvalidInput, ev.Ref)
+		}
+		if strings.TrimSpace(ev.SourceURI) == "" {
+			in.Evidence[i].SourceURI = domain.StatementURI(ac.UserID)
+			continue
+		}
+		person, err := domain.StatementPerson(ev.SourceURI)
+		if err != nil {
+			return fmt.Errorf("%w: statement %q: source_uri must be person://<your user id> (or empty to use yours)", ErrInvalidInput, ev.Ref)
+		}
+		if string(person) != ac.UserID {
+			return fmt.Errorf("%w: statement %q is attributed to %q, but you are %q: a person can only record their own statements; cite where %s wrote it down (a ticket or document) instead", ErrInvalidInput, ev.Ref, person, ac.UserID, person)
+		}
+		in.Evidence[i].SourceURI = domain.StatementURI(ac.UserID) // one spelling per person
 	}
 	return nil
 }

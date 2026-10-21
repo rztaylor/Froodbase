@@ -153,7 +153,7 @@ Three tools arrive with slice 1, available in Claude through `froodbase-mcp` and
 | `get_history` | Reads a record's content revisions (actor, time, rationale, snapshot) and, for a claim, its support events and the assertions it was derived from (`derivations`). |
 | `search` | Finds records in the areas you can read by an entity name, exact or near-miss (a near-miss is returned as a candidate with its similarity for you to confirm; it is never resolved for you), or by words in assertion bodies (PostgreSQL full text, websearch syntax). Identifier hits come first. Nothing is said about records outside your areas, not even a count. Optional `area` limits the search to one area key; `limit` defaults to 10, at most 50. Reading evidence with the restricted access class, through search or get_record, writes a `restricted_read` audit event. |
 
-Knowledge areas are created at API start-up for every area key the users file grants (the sample file grants `demo`), so the local stack needs no admin step; the cloud move adds an admin tool. Reports, conversations and transcripts are never sent: an agent contributes individual findings, each citing an https source with a revision, and lists the returned ids in its report.
+Knowledge areas are created at API start-up for every area key the users file grants (the sample file grants `demo`), so the local stack needs no admin step; the cloud move adds an admin tool. Reports, conversations and transcripts are never sent: an agent contributes individual findings, each citing a source the area's audience can check (an https source at a revision, a command it ran, or the caller's own statement), and lists the returned ids in its report.
 
 Every `contribute` call carries an `idempotency_key`. Retrying with the same key and the same content returns the stored result (`replayed: true`) and writes nothing; the same key with different content is refused. Keys are per person. An observation must cite at least one piece of evidence (PR-43); evidence the area already holds is cited by id rather than recorded again, and recording the same source, revision and locator twice is refused with the message to cite the existing id.
 
@@ -187,6 +187,35 @@ curl -s -u bob:froodbase-dev -H 'Content-Type: application/json' -H 'Accept: app
 
 The same flow runs as `TestDeductionFromTwoObservations` in `internal/apitest`.
 
+### Facts from commands and from people
+
+Not every fact has a web link. Two source kinds cover the rest:
+
+- `command`: a fact found by running a command or query. `source_uri` names what was observed: an Azure resource as `azure:///` followed by its ARM id (`azure:///subscriptions/<id>/resourceGroups/<rg>/providers/...`), a Kubernetes object as `k8s://<cluster>/<namespace>/<kind>/<name>` (or `k8s://<cluster>/<kind>/<name>` for a cluster-scoped one), a database as `sql://<server>/<database>`, or any other machine as `host://<name>`. `locator` is the exact command or query with secrets removed, `observed_at` when it ran, `excerpt` optionally the output relied on. `source_revision` defaults to `observed_at`, so running the same command again later is new evidence and a second root.
+- `statement`: something the caller knows from experience. `source_uri` is `person://<your user id>`, filled in when left out; `excerpt` is what you said and `observed_at` when; `source_revision` defaults to `observed_at`. You can only record your own statements: cite someone else's through where they wrote it down (a ticket or document). A call with no person behind it cannot record a statement. One person's statements count as one root per claim, and a statement root weighs 0.5 under the service default support configuration (observed sources weigh 1), so a claim resting on a statement alone is stored with `meets_threshold: false` until something observed backs it.
+
+Anything in `source_uri`, `locator` or `excerpt` that looks like a credential (a connection-string or URL password, a bearer token, a key, token or secret value, a JWT, a private key) is refused with the kind of secret it looks like; replace the value with `***` and contribute again. The check is a guard: scrub command output before you send it.
+
+The support in `contribute` results and `get_record` lists `roots_by_source_kind`, each kind with its root count and per-root weight, and `get_record` returns command and statement citations like any other, with their `locator`, `excerpt` and `observed_at`.
+
+```bash
+curl -s -u bob:froodbase-dev -H 'Content-Type: application/json' -H 'Accept: application/json, text/event-stream' \
+  -d '{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"contribute","arguments":{
+    "area":"demo","idempotency_key":"demo-3","rationale":"checked during INC-9",
+    "entities":[{"ref":"app","type":"service","names":[{"name":"Import Tool web app"}]}],
+    "evidence":[
+      {"ref":"run","source_kind":"command","source_uri":"azure:///subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/rg-import/providers/Microsoft.Web/sites/import-tool",
+       "locator":"az webapp config show --ids /subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/rg-import/providers/Microsoft.Web/sites/import-tool --query http20Enabled",
+       "excerpt":"true","observed_at":"2026-10-21T09:00:00Z","access_class":"area"},
+      {"ref":"said","source_kind":"statement","excerpt":"We turned HTTP/2 on for the import tool in September.","observed_at":"2026-10-21T09:15:00Z","access_class":"area"}],
+    "assertions":[
+      {"ref":"http2","kind":"observation","subject":"app","body_markdown":"HTTP/2 is enabled on the import tool web app","evidence":["run"]},
+      {"ref":"since","kind":"observation","subject":"app","body_markdown":"HTTP/2 was turned on for the import tool in September 2026","evidence":["said"]}]}}}' \
+  http://127.0.0.1:8080/mcp
+```
+
+The first observation has one `command` root weighing 1 and meets its threshold; the second has one `statement` root (`person://bob`) weighing 0.5 and does not. The same flow, with a second run of the command and the refusals, runs as `TestCommandObservationAndStatement` in `internal/apitest`.
+
 ## Migrations
 
 Migration `00003_idempotency.sql` adds the per-caller idempotency keys of `contribute`.
@@ -200,6 +229,7 @@ Schema migrations are SQL files under `internal/store/migrations`, named `NNNNN_
 | 3 | `00003_idempotency.sql` | The per-caller idempotency keys of `contribute` |
 | 4 | `00004_index_state.sql` | The `index_state` projection bookkeeping and the staleness function the dreamer reports |
 | 5 | `00005_derivation.sql` | The append-only `derivation` table linking a deduction to its sources in the same area, with row-level security and its grants |
+| 6 | `00006_command_statement_evidence.sql` | The `command` and `statement` source kinds (statements unique on what was said as well), the root's `source_kind` on support events (backfilled), and `root_weight_by_source_kind` on every support configuration |
 
 The migrations are embedded in `froodbase-api`, so `froodbase-api migrate` applies them wherever the binary runs and `froodbase-api migrate --status` lists them. Locally the Compose `migrate` service runs them before the api and dreamer start, and `make migrate` reruns them after you add a migration; in the cloud only the deployment pipeline runs them (`docs/planning/02-technical-requirements.md`, TR-92). Both server binaries open the database pool at startup and exit with a clear error if PostgreSQL is unreachable, so start the stack before running them from `bin/`.
 

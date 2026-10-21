@@ -240,7 +240,7 @@ func (p *Pool) SupportConfig(ctx context.Context, caller Caller, areaID domain.I
 		if err != nil {
 			return err
 		}
-		cfg, err = supportConfigFromRow(row.Version, row.EventWeights, row.ThresholdByKind, row.AllowedContributors, row.UseWithoutChallengeCap)
+		cfg, err = supportConfigFromRow(row.Version, row.EventWeights, row.RootWeightBySourceKind, row.ThresholdByKind, row.AllowedContributors, row.UseWithoutChallengeCap)
 		return err
 	})
 	return cfg, err
@@ -273,7 +273,7 @@ func (p *Pool) RecomputeSupportScore(ctx context.Context, caller Caller, claimID
 		if err != nil {
 			return fmt.Errorf("store: support config %q: %w", cur.SupportConfigVersion, mapErr(err))
 		}
-		cfg, err := supportConfigFromRow(row.Version, row.EventWeights, row.ThresholdByKind, row.AllowedContributors, row.UseWithoutChallengeCap)
+		cfg, err := supportConfigFromRow(row.Version, row.EventWeights, row.RootWeightBySourceKind, row.ThresholdByKind, row.AllowedContributors, row.UseWithoutChallengeCap)
 		if err != nil {
 			return err
 		}
@@ -331,6 +331,7 @@ func supportEventFromRow(r gen.SupportEvent) (domain.SupportEvent, error) {
 	return domain.SupportEvent{
 		Type: domain.SupportEventType(r.EventType), EvidenceRootIDs: roots, Scope: scope, ActorUserID: domain.ID(deref(r.ActorUserID)),
 		ActorAgentID: domain.ID(deref(r.ActorAgentID)), JobName: deref(r.JobName), ConfigVersion: r.ConfigVersion, Rationale: r.Rationale, At: r.At,
+		SourceKind: domain.SourceKind(deref(r.SourceKind)),
 	}, nil
 }
 

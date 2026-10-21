@@ -175,9 +175,11 @@ func (s *Service) evidenceRecord(ctx context.Context, caller store.Caller, ev do
 	}, nil
 }
 
-// SupportSummary counts a claim's events and reports its threshold verdict.
+// SupportSummary counts a claim's events, weighs its roots by source kind and
+// reports its threshold verdict.
 func SupportSummary(score float64, version string, events []domain.SupportEvent, cfg domain.SupportConfig, kind domain.EpistemicKind) *wire.Support {
 	out := &wire.Support{Score: score, ConfigVersion: version, Events: len(events), MeetsThreshold: cfg.MeetsThreshold(kind, score)}
+	out.RootsBySourceKind = contribute.RootWeightsToWire(domain.RootsBySourceKind(events, cfg))
 	for _, e := range events {
 		switch e.Type {
 		case domain.SupportRootAdded:

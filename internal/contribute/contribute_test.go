@@ -5,6 +5,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/rztaylor/froodbase/internal/authz"
 	"github.com/rztaylor/froodbase/internal/wire"
 )
 
@@ -129,5 +130,55 @@ func TestRequestHashIgnoresKeyOnly(t *testing.T) {
 	b.Observations[0].BodyMarkdown += "!"
 	if requestHash(a) == requestHash(b) {
 		t.Fatal("hash ignores the content")
+	}
+}
+
+// A statement records what the caller themself knows: its person is the
+// human caller, filled in when left out; someone else's statement, or one
+// with no person behind the call, is refused (PR-11).
+func TestAttributeStatements(t *testing.T) {
+	said := func(uri string) wire.ContributeInput {
+		in := good()
+		in.Evidence = append(in.Evidence, wire.EvidenceInput{Ref: "s1", SourceKind: "statement", SourceURI: uri, Excerpt: "The job runs nightly", AccessClass: "area"})
+		return in
+	}
+	bob := &authz.Context{UserID: "bob"}
+
+	in := said("")
+	if err := attributeStatements(&in, bob); err != nil {
+		t.Fatalf("own statement without a uri: %v", err)
+	}
+	if got := in.Evidence[1].SourceURI; got != "person://bob" {
+		t.Errorf("filled uri = %q, want person://bob", got)
+	}
+	if in.Evidence[0].SourceURI != good().Evidence[0].SourceURI {
+		t.Errorf("non-statement evidence changed: %q", in.Evidence[0].SourceURI)
+	}
+
+	in = said("Person://bob")
+	if err := attributeStatements(&in, bob); err != nil || in.Evidence[1].SourceURI != "person://bob" {
+		t.Errorf("own statement: %q, %v; want it as person://bob", in.Evidence[1].SourceURI, err)
+	}
+
+	in = said("person://carol")
+	err := attributeStatements(&in, bob)
+	if !errors.Is(err, ErrInvalidInput) || !strings.Contains(err.Error(), "only record their own statements") {
+		t.Errorf("someone else's statement: err = %v", err)
+	}
+
+	in = said("")
+	err = attributeStatements(&in, &authz.Context{AgentID: "triage-agent"})
+	if !errors.Is(err, ErrInvalidInput) || !strings.Contains(err.Error(), "no person") {
+		t.Errorf("agent without a person: err = %v", err)
+	}
+
+	in = said("https://example.com/bob")
+	if err := attributeStatements(&in, bob); !errors.Is(err, ErrInvalidInput) {
+		t.Errorf("statement with a non-person uri: err = %v", err)
+	}
+
+	in = good()
+	if err := attributeStatements(&in, &authz.Context{AgentID: "triage-agent"}); err != nil {
+		t.Errorf("no statements, no person needed: %v", err)
 	}
 }

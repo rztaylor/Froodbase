@@ -165,11 +165,11 @@ func TestScopeBytes(t *testing.T) {
 // the service default the migration seeds is the domain default.
 func TestSupportConfigRowRoundTrip(t *testing.T) {
 	cfg := domain.DefaultSupportConfig()
-	weights, thresholds, allowed, err := supportConfigToRow(cfg)
+	weights, roots, thresholds, allowed, err := supportConfigToRow(cfg)
 	if err != nil {
 		t.Fatal(err)
 	}
-	got, err := supportConfigFromRow(cfg.Version, weights, thresholds, allowed, cfg.UseWithoutChallengeCap)
+	got, err := supportConfigFromRow(cfg.Version, weights, roots, thresholds, allowed, cfg.UseWithoutChallengeCap)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -178,14 +178,17 @@ func TestSupportConfigRowRoundTrip(t *testing.T) {
 	}
 	bad := cfg
 	bad.EventWeights = map[domain.SupportEventType]float64{"retrieved": 1}
-	if _, _, _, err := supportConfigToRow(bad); err == nil {
+	if _, _, _, _, err := supportConfigToRow(bad); err == nil {
 		t.Error("supportConfigToRow accepted an invalid configuration")
 	}
-	if _, err := supportConfigFromRow("v", []byte(`{}`), thresholds, allowed, 0); err == nil {
+	if _, err := supportConfigFromRow("v", []byte(`{}`), roots, thresholds, allowed, 0); err == nil {
 		t.Error("supportConfigFromRow accepted missing weights")
 	}
-	if _, err := supportConfigFromRow("v", []byte(`nope`), thresholds, allowed, 0); err == nil {
+	if _, err := supportConfigFromRow("v", []byte(`nope`), roots, thresholds, allowed, 0); err == nil {
 		t.Error("supportConfigFromRow accepted malformed weights")
+	}
+	if _, err := supportConfigFromRow(cfg.Version, weights, []byte(`{"repository": 1}`), thresholds, allowed, cfg.UseWithoutChallengeCap); err == nil {
+		t.Error("supportConfigFromRow accepted root weights missing source kinds")
 	}
 }
 
