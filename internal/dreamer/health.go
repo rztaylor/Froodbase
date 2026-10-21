@@ -29,9 +29,13 @@ type healthResponse struct {
 	// revision (TR-57).
 	IndexTotal int `json:"index_total"`
 	IndexStale int `json:"index_stale"`
+	// ReconsiderWaiting counts the propagation jobs (reconsider_derived)
+	// waiting to run, across every area (TR-44).
+	ReconsiderWaiting int `json:"reconsider_waiting"`
 }
 
-// HealthHandler answers with the version and the queue depth. A database
+// HealthHandler answers with the version, the queue depth, the index
+// staleness and the propagation jobs waiting. A database
 // failure reports status degraded with 503.
 func (d *Dreamer) HealthHandler() http.Handler {
 	mux := http.NewServeMux()
@@ -50,6 +54,12 @@ func (d *Dreamer) HealthHandler() http.Handler {
 			w.WriteHeader(http.StatusServiceUnavailable)
 		} else {
 			resp.IndexTotal, resp.IndexStale = st.Total, st.Stale
+		}
+		if n, err := d.ReconsiderWaiting(ctx); err != nil {
+			resp.Status = "degraded"
+			w.WriteHeader(http.StatusServiceUnavailable)
+		} else {
+			resp.ReconsiderWaiting = n
 		}
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(resp)

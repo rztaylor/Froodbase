@@ -1,13 +1,17 @@
 // Package dreamer owns the background work of Froodbase: the River worker
 // that froodbase-dreamer runs against the database, the periodic schedules,
-// and the health endpoint that reports queue depth.
+// and the health endpoint that reports queue depth, index staleness and
+// waiting propagation jobs.
 //
 // Job kinds and their workers: heartbeat (every minute, slice 0);
 // index_record (per write, unique per record while waiting) and
 // rebuild_index (per area, on demand), which keep the projection
 // bookkeeping in index_state current and make staleness observable on the
-// health endpoint (slice 1). Later slices add review_sweep (periodic),
-// gap_scan (periodic per area) and reconsider_derived (per state change).
+// health endpoint (slice 1); reconsider_derived (per root added to a record
+// with dependants, unique per record while waiting), which walks the records
+// derived from it and passes the new roots on, completing itself in the
+// walk's transaction (slice 1b; the weakening events extend it). Later
+// slices add review_sweep (periodic) and gap_scan (periodic per area).
 // A job acts within the area it was enqueued for: its store caller holds
 // that area id and nothing else, so row-level security applies to jobs as
 // to people. Periodic jobs are inserted only by River's elected leader, so

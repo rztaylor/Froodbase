@@ -182,3 +182,33 @@ func TestRootOriginRationale(t *testing.T) {
 		}
 	}
 }
+
+// The records to reconsider when start changes: every record derived from
+// it, directly or through others, each once, sources before what is derived
+// from them; links that do not lead from start are ignored and a cycle is
+// walked once (TR-44).
+func TestDependants(t *testing.T) {
+	tests := []struct {
+		name  string
+		links []Derivation
+		want  []ID
+	}{
+		{"nothing derived", nil, nil},
+		{"unrelated links", links("i", "x"), nil},
+		{"one level", links("i2", "o", "i1", "o"), []ID{"i1", "i2"}},
+		{"chain", links("i2", "i1", "i1", "o"), []ID{"i1", "i2"}},
+		{"skip level waits for its other source", links("i2", "o", "i2", "i1", "i1", "o"), []ID{"i1", "i2"}},
+		{"diamond", links("top", "l", "top", "r", "l", "o", "r", "o"), []ID{"l", "r", "top"}},
+		{"source outside the walk imposes nothing", links("i", "o", "i", "other"), []ID{"i"}},
+		{"cycle walked once", links("a", "o", "b", "a", "a", "b", "c", "b"), []ID{"a", "b", "c"}},
+		{"cycle back to start", links("a", "o", "o", "a"), []ID{"a"}},
+		{"self link", links("a", "o", "a", "a"), []ID{"a"}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := Dependants("o", tt.links); !reflect.DeepEqual(got, tt.want) {
+				t.Errorf("Dependants() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}

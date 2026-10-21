@@ -64,6 +64,33 @@ func (IndexRecordArgs) InsertOpts() river.InsertOpts {
 // revision can enqueue its own job.
 var waitingStates = []rivertype.JobState{rivertype.JobStateAvailable, rivertype.JobStatePending, rivertype.JobStateRetryable, rivertype.JobStateRunning, rivertype.JobStateScheduled}
 
+// KindReconsiderDerived is the propagation job (TR-44) enqueued in the
+// transaction that changes a record's support, such as gaining a new
+// evidence root: the dreamer walks every record derived from it, directly
+// or transitively, and brings each up to date with its sources.
+const KindReconsiderDerived = "reconsider_derived"
+
+// ReconsiderDerivedArgs names the changed record and its area. The record id
+// is the uniqueness key while a job waits or runs, so several changes to one
+// record before the dreamer reaches it collapse into one walk; the job reads
+// the sources' current state rather than the change that enqueued it, so
+// nothing is lost by collapsing. The job completes itself inside the
+// transaction that holds the changed record against further root
+// additions, so a change either lands before the walk reads it or enqueues
+// a new job after the walk has completed.
+type ReconsiderDerivedArgs struct {
+	RecordID string `json:"record_id" river:"unique"`
+	AreaID   string `json:"area_id"`
+}
+
+// Kind implements river.JobArgs.
+func (ReconsiderDerivedArgs) Kind() string { return KindReconsiderDerived }
+
+// InsertOpts makes the job unique per record while it waits or runs.
+func (ReconsiderDerivedArgs) InsertOpts() river.InsertOpts {
+	return river.InsertOpts{UniqueOpts: river.UniqueOpts{ByArgs: true, ByState: waitingStates}}
+}
+
 // KindRebuildIndex re-indexes every record of one area.
 const KindRebuildIndex = "rebuild_index"
 
