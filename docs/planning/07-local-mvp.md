@@ -2,7 +2,7 @@
 
 Status: approved scope (board decision, 14 October 2026). Narrows the [implementation plan](04-implementation-plan.md) to what is built first and where it runs. The [product requirements](01-product-requirements.md), [technical requirements](02-technical-requirements.md) and [architecture design](03-architecture-design.md) remain the reference; this document records what the MVP takes from them, what it replaces for local running, and what it defers.
 
-Date: 14 October 2026. Revised 16 October 2026 to clarify source provenance and reviewer inspection, and again the same day for earned support, the smaller lifecycle and no report ingestion. Revised 20 October 2026 to add slice 1b (deductions and broader evidence) and slice 3b (taking over from the architecture references).
+Date: 14 October 2026. Revised 16 October 2026 to clarify source provenance and reviewer inspection, and again the same day for earned support, the smaller lifecycle and no report ingestion. Revised 20 October 2026 to add slice 1b (deductions and broader evidence) and slice 3b (taking over from the architecture references). Revised 21 October 2026: the slice 1b exit's inference from a ticket and an `az` command meets its threshold, because they are two independent roots; the below-threshold case moves to a deduction resting on one document.
 
 ## 1. Purpose
 
@@ -116,7 +116,7 @@ Added after slice 1, when using it showed a strict fact store rather than a shar
 | `froodbase-mcp` | The same tools; a repository skill teaches Claude to turn a plain-language finding, a command it ran or a document it read into contributions, searching before creating, citing existing records, and listing back anything with nothing checkable behind it |
 | `froodbase-dreamer` | Reconsideration job, strengthening half: when a record gains a new root, every deduction derived from it gains that root too |
 
-Exit: in Claude, a person describes a finding in plain words and Claude contributes it without asking for fields; an agent records an observation from a ticket and one from an `az` command, then an inference derived from both, which is active, labelled inference, below the inference threshold and shown with its sources; a person adds a statement of their own; a new independent root on one observation strengthens the inference through the dreamer; Claude records the evidenced findings of a committed sample document, citing its sections; reading back shows every record's sources.
+Exit: in Claude, a person describes a finding in plain words and Claude contributes it without asking for fields; an agent records an observation from a ticket and one from an `az` command, then an inference derived from both, which is active, labelled inference, inherits one root from each and is shown with its sources; a person adds a statement of their own; a new independent root on one observation strengthens the inference through the dreamer; Claude records the evidenced findings of a committed sample document, citing its sections, and a deduction resting on that document alone is returned below the inference threshold; reading back shows every record's sources. The exit is proven by `TestSlice1bExit` and walkthrough steps 4 to 14 of the development guide.
 
 ### Slice 2: two clocks
 
