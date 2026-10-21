@@ -75,6 +75,20 @@ var (
 	ErrLooksLikeSecret = errors.New("domain: looks like it holds a secret")
 	// ErrAccessTooPermissive means evidence claims a wider audience than its source allows (TR-61).
 	ErrAccessTooPermissive = errors.New("domain: access class is more permissive than the source's")
+	// ErrInvalidScopeVersion means a scope's version bound is not a version
+	// (dot-separated whole numbers, optionally after a "v") or the range is
+	// inverted.
+	ErrInvalidScopeVersion = errors.New("domain: scope version bounds must be versions such as 2.3 or v2.4.1, with version_min not above version_max")
+	// ErrUnknownLifecycleState means the state is not active, disputed, superseded or retracted.
+	ErrUnknownLifecycleState = errors.New("domain: unknown lifecycle state")
+	// ErrUnknownMode means the query mode is not current, as_of or historical.
+	ErrUnknownMode = errors.New("domain: unknown mode; use current, as_of or historical")
+	// ErrNoAsOf means an as_of query does not say which time it asks about.
+	ErrNoAsOf = errors.New("domain: an as_of query needs the time it asks about")
+	// ErrAsOfNotAllowed means a time was given with a mode other than as_of.
+	ErrAsOfNotAllowed = errors.New("domain: a time is given only with mode as_of")
+	// ErrInvalidFreshnessPolicy means a freshness policy gives a negative age.
+	ErrInvalidFreshnessPolicy = errors.New("domain: freshness policy ages must be zero (no limit) or a positive number of days")
 )
 
 func fieldErr(field string, err error) error {

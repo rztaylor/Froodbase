@@ -660,7 +660,7 @@ Private networking between Container Apps and Flexible Server; no public databas
 
 - Exact Entra claim layout for area scoping (group IDs in token versus directory lookup) depends on tenant group count; decide in phase 1.
 - Whether lesson sections need their own embeddings or one per lesson; decide from the evaluation corpus.
-- Freshness policy defaults per record type (how old `verified_at` may be before `stale`) are curator settings; propose 90 days for observations, none for decisions.
+- Freshness policy defaults per record type (how old `verified_at` may be before `stale`) are curator settings. Decided for the MVP (`docs/dev/decisions.md`, 2026-10-21): 90 days for observations and inferences, none for decisions, per area with that default.
 - Default support weights, the use-without-challenge cap and the per-kind thresholds are set from the evaluation corpus in phase 2; the service ships conservative defaults so an inference needs more than one root or one outcome to clear its threshold.
 - Redaction interaction with revision snapshots: snapshots containing a redacted excerpt must also be scrubbed; design the scrub job in phase 2.
 
