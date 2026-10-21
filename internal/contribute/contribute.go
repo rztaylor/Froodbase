@@ -192,7 +192,7 @@ func (s *Service) build(ctx context.Context, caller store.Caller, ac *authz.Cont
 		}
 		scope := domain.Scope{}
 		if ai.Scope != nil {
-			scope = scopeFromWire(*ai.Scope)
+			scope = ScopeFromWire(*ai.Scope)
 		}
 		a, err := domain.NewAssertion(domain.EpistemicKind(ai.Kind), id, areaID, subject, ai.BodyMarkdown, scope, now)
 		if err != nil {
@@ -341,6 +341,11 @@ func validateInput(in wire.ContributeInput) error {
 		if len(e.Names) == 0 {
 			return fmt.Errorf("%w: entity %q has no names", ErrInvalidInput, e.Ref)
 		}
+		for _, n := range e.Names {
+			if err := checkTemporal(n.Scope, n.ValidFrom, n.ValidTo); err != nil {
+				return fmt.Errorf("%w: entity %q: name %q: %v", ErrInvalidInput, e.Ref, n.Name, err)
+			}
+		}
 	}
 	evidenceRefs := map[string]bool{}
 	for _, ev := range in.Evidence {
@@ -368,6 +373,9 @@ func validateInput(in wire.ContributeInput) error {
 		if strings.TrimSpace(a.Subject) == "" {
 			return fmt.Errorf("%w: %s %q has no subject", ErrInvalidInput, kind, a.Ref)
 		}
+		if err := checkTemporal(a.Scope, a.ValidFrom, a.ValidTo); err != nil {
+			return fmt.Errorf("%w: %s %q: %v", ErrInvalidInput, kind, a.Ref, err)
+		}
 		switch err := kind.CheckGrounds(len(a.Evidence), len(a.DerivedFrom)); {
 		case errors.Is(err, domain.ErrNoEvidence):
 			return fmt.Errorf("%w: observation %q cites no evidence; every claim needs shareable evidence of its own (PR-43)", ErrInvalidInput, a.Ref)
@@ -394,6 +402,24 @@ func validateInput(in wire.ContributeInput) error {
 		return fmt.Errorf("%w: derived_from refs loop (%v); a record cannot be derived, directly or through others, from itself", ErrInvalidInput, err)
 	}
 	return validateLinks(in.Links, seen, evidenceRefs)
+}
+
+// checkTemporal checks the scope and validity a contributor gave a claim or
+// a name (TR-26, TR-30): version bounds must be versions and in order, and
+// a validity window must end after it starts. Both are optional and nothing
+// is filled in when they are left out: dates nobody gave stay unknown, and
+// are never taken from the recording time (TR-32). Stored scopes are not
+// re-checked when read, so records written before this check still load.
+func checkTemporal(scope *wire.Scope, from, to *time.Time) error {
+	if scope != nil {
+		if err := ScopeFromWire(*scope).Validate(); err != nil {
+			return fmt.Errorf("scope: version_min and version_max must be versions such as 2.3 or v2.4.1, with version_min not above version_max (got %q to %q)", scope.VersionMin, scope.VersionMax)
+		}
+	}
+	if from != nil && to != nil && !from.Before(*to) {
+		return fmt.Errorf("valid_to (%s) must be after valid_from (%s); leave out a date you do not know", to.Format(time.RFC3339), from.Format(time.RFC3339))
+	}
+	return nil
 }
 
 // validateLinks checks evidence for existing claims: each names an
@@ -505,11 +531,12 @@ func roleNames(roles []authz.Role) []string {
 func nameFromWire(n wire.Name) domain.EntityName {
 	out := domain.EntityName{Name: n.Name, ValidFrom: n.ValidFrom, ValidTo: n.ValidTo}
 	if n.Scope != nil {
-		out.Scope = scopeFromWire(*n.Scope)
+		out.Scope = ScopeFromWire(*n.Scope)
 	}
 	return out
 }
 
-func scopeFromWire(s wire.Scope) domain.Scope {
+// ScopeFromWire is the domain form of a wire scope.
+func ScopeFromWire(s wire.Scope) domain.Scope {
 	return domain.Scope{Environment: s.Environment, Region: s.Region, VersionMin: s.VersionMin, VersionMax: s.VersionMax, Cluster: s.Cluster, Tenant: s.Tenant}
 }

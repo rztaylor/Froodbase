@@ -27,7 +27,7 @@ var (
 // must have row-level security enabled.
 var recordTables = []string{
 	"knowledge_area", "entity", "entity_name", "assertion", "evidence", "claim_evidence",
-	"contribution", "contribution_claims", "revision", "audit_event", "support_event", "support_config", "derivation",
+	"contribution", "contribution_claims", "revision", "audit_event", "support_event", "support_config", "derivation", "freshness_policy",
 }
 
 func ctxT(t *testing.T) context.Context {

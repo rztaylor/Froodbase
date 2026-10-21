@@ -226,6 +226,17 @@ type EntityView struct {
 
 // Record is one record as every tool returns it (TR-14). Fields that do
 // not apply to the record type are omitted.
+//
+// Status labels the record relative to now, whatever the mode it was found
+// in (TR-53): current (in force and valid now; a missing valid_to means not
+// known to have ended, never verified current), historical (superseded,
+// retracted, or valid only before now) or upcoming (valid only from later).
+// ValidityUnknown means nobody gave its validity dates: it is not ruled out
+// at any time, and the dates were never taken from recorded_at (TR-32).
+// Stale means the record is current but was last checked (verified_at, or
+// recorded_at if never verified) longer ago than its area's freshness policy
+// allows for its kind: it is still returned, flagged for review (TR-31).
+// An entity found by name is labelled with that name's status.
 type Record struct {
 	ID                   string      `json:"id"`
 	RecordType           string      `json:"record_type"`
@@ -242,6 +253,8 @@ type Record struct {
 	RecordedAt           time.Time   `json:"recorded_at"`
 	VerifiedAt           *time.Time  `json:"verified_at,omitempty"`
 	ReviewDueAt          *time.Time  `json:"review_due_at,omitempty"`
+	Status               string      `json:"status,omitempty"`
+	Stale                bool        `json:"stale,omitempty"`
 	NeedsReconsideration bool        `json:"needs_reconsideration,omitempty"`
 	Subject              string      `json:"subject,omitempty"`
 	BodyMarkdown         string      `json:"body_markdown,omitempty"`
@@ -299,13 +312,32 @@ type HistoryOutput struct {
 	Derivations   []Derivation   `json:"derivations,omitempty"`
 }
 
+// The search modes (TR-50, TR-53).
+const (
+	ModeCurrent    = "current"    // in force and valid now: the default
+	ModeAsOf       = "as_of"      // valid at AsOf, by validity time, whenever recorded
+	ModeHistorical = "historical" // everything, each labelled with its status
+)
+
+// The statuses a record is labelled with relative to now.
+const (
+	StatusCurrent    = "current"
+	StatusHistorical = "historical"
+	StatusUpcoming   = "upcoming"
+)
+
 // SearchInput is a search over the caller's knowledge areas (TR-50). Area,
-// when set, limits the search to one area key. Modes and scope filters
-// arrive with slice 2.
+// when set, limits the search to one area key. Mode is current (the
+// default), as_of with AsOf, or historical. Scope, when set, keeps records
+// whose scope overlaps it: an unspecified dimension on either side matches
+// anything.
 type SearchInput struct {
-	Query string `json:"query"`
-	Area  string `json:"area,omitempty"`
-	Limit int    `json:"limit,omitempty"`
+	Query string     `json:"query"`
+	Area  string     `json:"area,omitempty"`
+	Limit int        `json:"limit,omitempty"`
+	Mode  string     `json:"mode,omitempty"`
+	AsOf  *time.Time `json:"as_of,omitempty"`
+	Scope *Scope     `json:"scope,omitempty"`
 }
 
 // Channel names of search results.
@@ -331,9 +363,31 @@ type SearchResult struct {
 	Match  Match  `json:"match"`
 }
 
-// SearchOutput lists results, identifier hits first. It carries no total
-// and nothing about records the caller may not read (PR-62).
+// SearchOutput lists results, identifier hits first, with the mode they
+// were filtered by. It carries no total and nothing about records the caller
+// may not read (PR-62).
 type SearchOutput struct {
 	Query   string         `json:"query"`
+	Mode    string         `json:"mode"`
+	AsOf    *time.Time     `json:"as_of,omitempty"`
 	Results []SearchResult `json:"results"`
+}
+
+// GetAsOfInput asks for a record as valid at a time, by validity time
+// (TR-34): an assertion or an entity, by id.
+type GetAsOfInput struct {
+	ID   string     `json:"id"`
+	AsOf *time.Time `json:"as_of"`
+}
+
+// GetAsOfOutput is a record as valid at AsOf. Valid says whether it was:
+// its validity includes AsOf (an unknown validity is not ruled out) and it
+// was not retracted. Record is the record when it was, with an entity's
+// names cut to those valid then; Reason says why not otherwise.
+type GetAsOfOutput struct {
+	ID     string    `json:"id"`
+	AsOf   time.Time `json:"as_of"`
+	Valid  bool      `json:"valid"`
+	Reason string    `json:"reason,omitempty"`
+	Record *Record   `json:"record,omitempty"`
 }

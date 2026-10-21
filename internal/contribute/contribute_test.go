@@ -53,6 +53,46 @@ func TestValidateInput(t *testing.T) {
 	}
 }
 
+func TestValidateInputScopesAndValidity(t *testing.T) {
+	from, to := time.Date(2026, 9, 2, 0, 0, 0, 0, time.UTC), time.Date(2026, 9, 9, 0, 0, 0, 0, time.UTC)
+	ok := map[string]func(*wire.ContributeInput){
+		"no dates or scope (validity unknown)": func(*wire.ContributeInput) {},
+		"scope with a version range": func(in *wire.ContributeInput) {
+			in.Observations[0].Scope = &wire.Scope{Environment: "prod", VersionMin: "2.3", VersionMax: "v2.3.1"}
+		},
+		"a validity window":    func(in *wire.ContributeInput) { in.Observations[0].ValidFrom, in.Observations[0].ValidTo = &from, &to },
+		"only an end":          func(in *wire.ContributeInput) { in.Observations[0].ValidTo = &to },
+		"a scoped entity name": func(in *wire.ContributeInput) { in.Entities[0].Names[0].Scope = &wire.Scope{VersionMin: "2.4"} },
+	}
+	for name, mutate := range ok {
+		in := good()
+		mutate(&in)
+		if err := validateInput(in); err != nil {
+			t.Errorf("%s: refused: %v", name, err)
+		}
+	}
+	bad := map[string]struct {
+		mutate func(*wire.ContributeInput)
+		says   string
+	}{
+		"assertion version not a version": {func(in *wire.ContributeInput) { in.Observations[0].Scope = &wire.Scope{VersionMin: "2.4-beta"} }, `observation "o1": scope`},
+		"assertion version range inverted": {func(in *wire.ContributeInput) {
+			in.Assertions = []wire.AssertionInput{{Ref: "a1", Kind: "inference", Subject: "e1", BodyMarkdown: "x", DerivedFrom: []string{"o1"},
+				Scope: &wire.Scope{VersionMin: "2.10", VersionMax: "2.9"}}}
+		}, `inference "a1": scope`},
+		"entity name version not a version": {func(in *wire.ContributeInput) { in.Entities[0].Names[0].Scope = &wire.Scope{VersionMax: "latest"} }, `entity "e1": name "Import Tool": scope`},
+		"validity ends before it starts":    {func(in *wire.ContributeInput) { in.Observations[0].ValidFrom, in.Observations[0].ValidTo = &to, &from }, `observation "o1": valid_to`},
+	}
+	for name, c := range bad {
+		in := good()
+		c.mutate(&in)
+		err := validateInput(in)
+		if !errors.Is(err, ErrInvalidInput) || !strings.Contains(err.Error(), c.says) {
+			t.Errorf("%s: err = %v, want ErrInvalidInput naming %s", name, err, c.says)
+		}
+	}
+}
+
 // withDeductions adds an inference derived from the observation and a
 // decision derived from the inference, listed before it.
 func withDeductions() wire.ContributeInput {

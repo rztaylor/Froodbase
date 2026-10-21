@@ -109,6 +109,14 @@ type Evidence struct {
 	RecordedAt     time.Time
 }
 
+type FreshnessPolicy struct {
+	ID          int64
+	AreaID      *string
+	MaxAgeDays  []byte
+	ActorUserID *string
+	RecordedAt  time.Time
+}
+
 type IdempotencyKey struct {
 	CallerUserID string
 	Key          string

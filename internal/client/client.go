@@ -147,6 +147,13 @@ func (c *Client) Search(ctx context.Context, in wire.SearchInput) (wire.SearchOu
 	return out, err
 }
 
+// GetAsOf forwards the get_as_of tool.
+func (c *Client) GetAsOf(ctx context.Context, in wire.GetAsOfInput) (wire.GetAsOfOutput, error) {
+	var out wire.GetAsOfOutput
+	err := c.call(ctx, mcpserver.ToolGetAsOf, in, &out)
+	return out, err
+}
+
 // GetHistory forwards the get_history tool.
 func (c *Client) GetHistory(ctx context.Context, in wire.GetHistoryInput) (wire.HistoryOutput, error) {
 	var out wire.HistoryOutput

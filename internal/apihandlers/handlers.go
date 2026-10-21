@@ -36,5 +36,8 @@ func New(pool *store.Pool, areas *Areas, client string) mcpserver.Handlers {
 		Search: func(ctx context.Context, in wire.SearchInput) (wire.SearchOutput, error) {
 			return reads.Search(ctx, authz.FromContext(ctx), in)
 		},
+		GetAsOf: func(ctx context.Context, in wire.GetAsOfInput) (wire.GetAsOfOutput, error) {
+			return reads.GetAsOf(ctx, authz.FromContext(ctx), in)
+		},
 	}
 }

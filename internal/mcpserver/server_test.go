@@ -160,3 +160,47 @@ func TestContributeSchemaRequiresOnlyWhatCannotBeInferred(t *testing.T) {
 		}
 	}
 }
+
+// TestTemporalToolSchemas checks that search takes its mode, as_of and
+// scope as optional fields (current is the default) and that get_as_of is
+// listed and requires the id and the time.
+func TestTemporalToolSchemas(t *testing.T) {
+	ctx := context.Background()
+	cs := connect(ctx, t, New("test", Handlers{
+		Search: func(context.Context, wire.SearchInput) (wire.SearchOutput, error) { return wire.SearchOutput{}, nil },
+		GetAsOf: func(_ context.Context, in wire.GetAsOfInput) (wire.GetAsOfOutput, error) {
+			return wire.GetAsOfOutput{ID: in.ID, AsOf: *in.AsOf, Valid: true}, nil
+		},
+	}))
+	tools, err := cs.ListTools(ctx, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	type schema struct {
+		Required   []string                   `json:"required"`
+		Properties map[string]json.RawMessage `json:"properties"`
+	}
+	got := map[string]schema{}
+	for _, tool := range tools.Tools {
+		raw, err := json.Marshal(tool.InputSchema)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var s schema
+		if err := json.Unmarshal(raw, &s); err != nil {
+			t.Fatal(err)
+		}
+		sort.Strings(s.Required)
+		got[tool.Name] = s
+	}
+	if s, ok := got[ToolSearch]; !ok || !reflect.DeepEqual(s.Required, []string{"query"}) || s.Properties["mode"] == nil || s.Properties["as_of"] == nil || s.Properties["scope"] == nil {
+		t.Errorf("search schema = %+v, want query required and mode, as_of and scope optional", s)
+	}
+	if s, ok := got[ToolGetAsOf]; !ok || !reflect.DeepEqual(s.Required, []string{"as_of", "id"}) {
+		t.Errorf("get_as_of schema = %+v, want id and as_of required", s)
+	}
+	res, err := cs.CallTool(ctx, &mcp.CallToolParams{Name: ToolGetAsOf, Arguments: map[string]any{"id": "x", "as_of": "2026-09-03T00:00:00Z"}})
+	if err != nil || res.IsError {
+		t.Fatalf("get_as_of call = %+v, %v", res, err)
+	}
+}

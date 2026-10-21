@@ -7,18 +7,147 @@ package gen
 
 import (
 	"context"
+	"time"
 )
 
+const classifyAssertion = `-- name: ClassifyAssertion :one
+SELECT froodbase_in_mode(a.lifecycle_state, a.valid_from, a.valid_to, $1::text, $2::timestamptz, $3::timestamptz)::boolean AS included,
+       froodbase_temporal_status(a.lifecycle_state, a.valid_from, a.valid_to, $3::timestamptz)::text AS status,
+       froodbase_stale(a.epistemic_kind, a.lifecycle_state, a.valid_from, a.valid_to, a.recorded_at, a.verified_at,
+                       froodbase_freshness_policy(a.area_id), $3::timestamptz)::boolean AS stale
+FROM assertion a WHERE a.id = $4::uuid
+`
+
+type ClassifyAssertionParams struct {
+	Mode  string
+	AsOf  *time.Time
+	NowAt time.Time
+	ID    string
+}
+
+type ClassifyAssertionRow struct {
+	Included bool
+	Status   string
+	Stale    bool
+}
+
+// One assertion through the mode predicate, status and stale rule: what
+// get_record labels and get_as_of asks.
+func (q *Queries) ClassifyAssertion(ctx context.Context, arg ClassifyAssertionParams) (ClassifyAssertionRow, error) {
+	row := q.db.QueryRow(ctx, classifyAssertion,
+		arg.Mode,
+		arg.AsOf,
+		arg.NowAt,
+		arg.ID,
+	)
+	var i ClassifyAssertionRow
+	err := row.Scan(&i.Included, &i.Status, &i.Stale)
+	return i, err
+}
+
+const classifyEntityNames = `-- name: ClassifyEntityNames :many
+SELECT n.position,
+       froodbase_in_mode(e.lifecycle_state, n.valid_from, n.valid_to, $1::text, $2::timestamptz, $3::timestamptz)::boolean AS included,
+       froodbase_temporal_status(e.lifecycle_state, n.valid_from, n.valid_to, $3::timestamptz)::text AS status
+FROM entity_name n JOIN entity e ON e.id = n.entity_id
+WHERE n.entity_id = $4::uuid
+ORDER BY n.position
+`
+
+type ClassifyEntityNamesParams struct {
+	Mode     string
+	AsOf     *time.Time
+	NowAt    time.Time
+	EntityID string
+}
+
+type ClassifyEntityNamesRow struct {
+	Position int32
+	Included bool
+	Status   string
+}
+
+// Each name of an entity through the mode predicate with the entity's
+// lifecycle state, in name order.
+func (q *Queries) ClassifyEntityNames(ctx context.Context, arg ClassifyEntityNamesParams) ([]ClassifyEntityNamesRow, error) {
+	rows, err := q.db.Query(ctx, classifyEntityNames,
+		arg.Mode,
+		arg.AsOf,
+		arg.NowAt,
+		arg.EntityID,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ClassifyEntityNamesRow{}
+	for rows.Next() {
+		var i ClassifyEntityNamesRow
+		if err := rows.Scan(&i.Position, &i.Included, &i.Status); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const currentFreshnessPolicy = `-- name: CurrentFreshnessPolicy :one
+SELECT froodbase_freshness_policy($1::uuid)::jsonb AS max_age_days
+`
+
+// The freshness policy that applies in the area: its newest, or the
+// service default.
+func (q *Queries) CurrentFreshnessPolicy(ctx context.Context, areaID string) ([]byte, error) {
+	row := q.db.QueryRow(ctx, currentFreshnessPolicy, areaID)
+	var max_age_days []byte
+	err := row.Scan(&max_age_days)
+	return max_age_days, err
+}
+
+const insertFreshnessPolicy = `-- name: InsertFreshnessPolicy :exec
+INSERT INTO freshness_policy (area_id, max_age_days, actor_user_id, recorded_at)
+VALUES ($1::uuid, $2::jsonb, $3::text, $4::timestamptz)
+`
+
+type InsertFreshnessPolicyParams struct {
+	AreaID      string
+	MaxAgeDays  []byte
+	ActorUserID *string
+	RecordedAt  time.Time
+}
+
+func (q *Queries) InsertFreshnessPolicy(ctx context.Context, arg InsertFreshnessPolicyParams) error {
+	_, err := q.db.Exec(ctx, insertFreshnessPolicy,
+		arg.AreaID,
+		arg.MaxAgeDays,
+		arg.ActorUserID,
+		arg.RecordedAt,
+	)
+	return err
+}
+
 const searchAssertionBodies = `-- name: SearchAssertionBodies :many
-SELECT a.id, a.area_id, ts_rank_cd(a.body_fts, q)::float8 AS rank
-FROM assertion a, websearch_to_tsquery('english', $1::text) q
+SELECT a.id, a.area_id, ts_rank_cd(a.body_fts, q)::float8 AS rank,
+       froodbase_temporal_status(a.lifecycle_state, a.valid_from, a.valid_to, $1::timestamptz)::text AS status,
+       froodbase_stale(a.epistemic_kind, a.lifecycle_state, a.valid_from, a.valid_to, a.recorded_at, a.verified_at,
+                       froodbase_freshness_policy(a.area_id), $1::timestamptz)::boolean AS stale
+FROM assertion a, websearch_to_tsquery('english', $2::text) q
 WHERE a.body_fts @@ q
+  AND froodbase_in_mode(a.lifecycle_state, a.valid_from, a.valid_to, $3::text, $4::timestamptz, $1::timestamptz)
+  AND froodbase_scope_overlaps(a.scope, $5::jsonb)
 ORDER BY rank DESC, a.id
-LIMIT $2::int
+LIMIT $6::int
 `
 
 type SearchAssertionBodiesParams struct {
+	NowAt time.Time
 	Query string
+	Mode  string
+	AsOf  *time.Time
+	Scope []byte
 	Lim   int32
 }
 
@@ -26,12 +155,23 @@ type SearchAssertionBodiesRow struct {
 	ID     string
 	AreaID string
 	Rank   float64
+	Status string
+	Stale  bool
 }
 
 // Full-text channel (TR-51): websearch syntax over the generated tsvector,
-// ranked by cover density.
+// ranked by cover density, filtered by mode and scope before the limit
+// (TR-53), with each record's status relative to now and its stale flag
+// under the area's freshness policy (TR-31).
 func (q *Queries) SearchAssertionBodies(ctx context.Context, arg SearchAssertionBodiesParams) ([]SearchAssertionBodiesRow, error) {
-	rows, err := q.db.Query(ctx, searchAssertionBodies, arg.Query, arg.Lim)
+	rows, err := q.db.Query(ctx, searchAssertionBodies,
+		arg.NowAt,
+		arg.Query,
+		arg.Mode,
+		arg.AsOf,
+		arg.Scope,
+		arg.Lim,
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -39,7 +179,13 @@ func (q *Queries) SearchAssertionBodies(ctx context.Context, arg SearchAssertion
 	items := []SearchAssertionBodiesRow{}
 	for rows.Next() {
 		var i SearchAssertionBodiesRow
-		if err := rows.Scan(&i.ID, &i.AreaID, &i.Rank); err != nil {
+		if err := rows.Scan(
+			&i.ID,
+			&i.AreaID,
+			&i.Rank,
+			&i.Status,
+			&i.Stale,
+		); err != nil {
 			return nil, err
 		}
 		items = append(items, i)
@@ -53,17 +199,24 @@ func (q *Queries) SearchAssertionBodies(ctx context.Context, arg SearchAssertion
 const searchEntityNames = `-- name: SearchEntityNames :many
 SELECT n.entity_id, n.area_id, n.name,
        similarity(n.name, $1::text)::float8 AS sim,
-       (lower(n.name) = lower($1::text)) AS exact
-FROM entity_name n
-WHERE lower(n.name) = lower($1::text)
-   OR similarity(n.name, $1::text) >= $2::float8
+       (lower(n.name) = lower($1::text)) AS exact,
+       froodbase_temporal_status(e.lifecycle_state, n.valid_from, n.valid_to, $2::timestamptz)::text AS status
+FROM entity_name n JOIN entity e ON e.id = n.entity_id
+WHERE (lower(n.name) = lower($1::text)
+       OR similarity(n.name, $1::text) >= $3::float8)
+  AND froodbase_in_mode(e.lifecycle_state, n.valid_from, n.valid_to, $4::text, $5::timestamptz, $2::timestamptz)
+  AND froodbase_scope_overlaps(n.scope, $6::jsonb)
 ORDER BY exact DESC, sim DESC, n.entity_id
-LIMIT $3::int
+LIMIT $7::int
 `
 
 type SearchEntityNamesParams struct {
 	Query     string
+	NowAt     time.Time
 	Threshold float64
+	Mode      string
+	AsOf      *time.Time
+	Scope     []byte
 	Lim       int32
 }
 
@@ -73,12 +226,23 @@ type SearchEntityNamesRow struct {
 	Name     string
 	Sim      float64
 	Exact    bool
+	Status   string
 }
 
 // Identifier channel (TR-51): exact (case-insensitive) and near-miss names
-// by trigram similarity, best first. The caller's areas filter through RLS.
+// by trigram similarity, best first. The caller's areas filter through RLS;
+// the mode filter (the entity's lifecycle state with the name's validity)
+// and the scope filter run before the limit (TR-53).
 func (q *Queries) SearchEntityNames(ctx context.Context, arg SearchEntityNamesParams) ([]SearchEntityNamesRow, error) {
-	rows, err := q.db.Query(ctx, searchEntityNames, arg.Query, arg.Threshold, arg.Lim)
+	rows, err := q.db.Query(ctx, searchEntityNames,
+		arg.Query,
+		arg.NowAt,
+		arg.Threshold,
+		arg.Mode,
+		arg.AsOf,
+		arg.Scope,
+		arg.Lim,
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -92,6 +256,7 @@ func (q *Queries) SearchEntityNames(ctx context.Context, arg SearchEntityNamesPa
 			&i.Name,
 			&i.Sim,
 			&i.Exact,
+			&i.Status,
 		); err != nil {
 			return nil, err
 		}

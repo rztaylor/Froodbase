@@ -1,13 +1,13 @@
 ---
 name: froodbase-contribute
-description: Use when recording knowledge in Froodbase through its contribute tool. That covers a person saying in plain words what they learned, found, concluded or decided ("remember that...", "record this", "note in Froodbase that..."), an investigation turning up a finding that others could check, and a request to record the useful information in a document. Teaches how to turn the finding into a contribute change set without asking the person for fields. Search first, cite existing records, pick the evidence kind and the assertion kind, record deductions with their sources and commands as command evidence, add new sources to claims already recorded instead of recording them again, extract a document's findings with a citation to each section without sending the document, keep secrets out, and report the ids written.
+description: Use when recording knowledge in Froodbase through its contribute tool. That covers a person saying in plain words what they learned, found, concluded or decided ("remember that...", "record this", "note in Froodbase that..."), an investigation turning up a finding that others could check, and a request to record the useful information in a document. Teaches how to turn the finding into a contribute change set without asking the person for fields. Search first, cite existing records, pick the evidence kind and the assertion kind, give when each finding held and where (validity dates and scope) only when they are known, record deductions with their sources and commands as command evidence, add new sources to claims already recorded instead of recording them again, extract a document's findings with a citation to each section without sending the document, keep secrets out, and report the ids written.
 ---
 
 # Recording findings in Froodbase
 
 Froodbase is shared memory for people and agents. It holds entities (systems, services, teams), assertions about them, and the evidence behind each assertion that others can check. The person tells you what they learned in plain words. **Building the change set is your job, not theirs.** Never ask them for a field you can get from the conversation, from the sources you read or from the server. Prefer recording with provenance over refusing.
 
-Tools (MCP server `froodbase`): `whoami`, `search`, `get_record`, `get_history`, `contribute`.
+Tools (MCP server `froodbase`): `whoami`, `search`, `get_record`, `get_as_of`, `get_history`, `contribute`.
 
 ## Never send
 
@@ -18,7 +18,7 @@ Tools (MCP server `froodbase`): `whoami`, `search`, `get_record`, `get_history`,
 ## Recording a finding
 
 1. **Area.** Call `whoami` once per session. Use the knowledge area where the caller holds `contributor`. If several fit, pick the one for the system concerned. Ask only when you genuinely cannot tell.
-2. **Search first.** `search` the names of the systems involved, and a few words of the finding.
+2. **Search first.** `search` the names of the systems involved, and a few words of the finding, with `mode: historical`, so a record whose validity has ended, a superseded one or a former name is found too (the default `current` mode leaves them out).
    - An exact name match: use its id as the `subject`. Do not create the entity again.
    - A near-miss candidate: read it with `get_record`. If it is plainly the same thing, use it. If it is ambiguous, ask the person one question that names both.
    - The same finding already recorded: do not record it again, because repetition earns nothing. If you have a source it does not cite yet, add that source to the recorded claim instead (see Adding evidence to something already recorded). If not, tell the person it exists, with its id.
@@ -28,9 +28,19 @@ Tools (MCP server `froodbase`): `whoami`, `search`, `get_record`, `get_history`,
    - `inference`: what was concluded. It names in `derived_from` the assertions it rests on (refs in this call or existing ids), cites evidence of its own, or both.
    - `decision`: what was approved or intended. It cites where it was decided, or is derived from what it rests on, or both.
 4. **Evidence.** Cite a source the area's audience can check (see Evidence). Every observation needs at least one piece.
-5. **Build the call** with only what you know (see What the server fills in). Set `scope` (environment, region, version_min/version_max, cluster, tenant) when the finding is limited to it. Set `valid_from`/`valid_to` only when a source states the dates. Never set them to today or to when you read the source. Put a short `rationale` (for example "found during INC-12") and `investigation_ref` when there is one.
+5. **Build the call** with only what you know (see What the server fills in, and When it held and where). Put a short `rationale` (for example "found during INC-12") and `investigation_ref` when there is one.
 6. **Idempotency key.** Mint one per change set: `<user>-<topic or investigation>-<short slug>`, for example `bob-inc-12-callback-retry`. After a timeout or error, retry with the same key and the same content. The result is then replayed and nothing is written twice. Never reuse a key for different content. A refused call writes nothing, so you may fix it and send it again under the same key.
 7. **Contribute**, then report (see Reporting).
+
+## When it held and where
+
+Froodbase keeps when a fact applied apart from when it was recorded, and answers "what is true now" and "what was true then" from it. Give both whenever the person or a source says them; leave them out otherwise.
+
+- `valid_from` and `valid_to` (RFC 3339, UTC) are when the finding held, from what was said or read: "since the 2.4 deployment on 9 September" is `valid_from: 2026-09-09T00:00:00Z`; "from 2 September until the fix on 9 September" is `valid_from` 2 September and `valid_to` 9 September (`valid_to` is the first moment it no longer held). Never use today, when you read the source, a commit's date unless the source says the change took effect then, or `observed_at`. A command run shows what held when it ran; that is its `observed_at`, not a validity date. Without dates the record is stored and returned marked `validity_unknown`, which is correct when nobody knows.
+- `scope` says where it held: `environment` (prod, staging), `region`, `version_min` and `version_max`, `cluster`, `tenant`. For one version give both bounds (`"version_min": "2.3", "version_max": "2.3"`); for "2.3 and later" give only `version_min`. Versions are numbers separated by dots, optionally after a `v`: write `2.4.1`, not `2.4.1-hotfix` or `latest`. Leave out a key that does not apply: a missing key matches anything.
+- Entity names take the same fields when a name held only for a time ("renamed to Ingest Service in June": the old name's `valid_to` and the new name's `valid_from`).
+
+To read back: `search` defaults to `mode: current` (in force and valid now). For "what was true on 3 September" use `mode: as_of` with `as_of`; for past cases as analogues use `mode: historical`. `get_as_of` reads one record at a time. Every result has a `status` (`current`, `historical`, `upcoming`): never present a historical record as the current state. `validity_unknown: true` means "not known to have ended", not verified, and `stale: true` means current but unchecked for longer than the area allows: say both when you report.
 
 ## Evidence
 
@@ -143,6 +153,8 @@ A refusal writes nothing and says what to fix. Fix the call and send it again.
 | `cites no evidence` | Find a source, or record it as a deduction derived from what it rests on. If nothing is checkable, see When to ask. |
 | `which is a ref in this call` | Cite the evidence in that new assertion's `evidence` list. `links` is only for claims already recorded. |
 | `not the id of an assertion` or `a referenced record was not found` | `search` for the recorded claim and use its `id`. |
+| `scope: version_min and version_max must be versions` | Write the version as numbers (`2.4.1`), or leave the bound out if the source gives none. |
+| `valid_to ... must be after valid_from` | Check the dates the source gives; leave out one you do not know. |
 | `in another knowledge area` | Add evidence only to claims in the area you contribute to. Record the finding in that area's own terms instead. |
 | `contributor role required` | Tell the person they cannot contribute to that area. Do not retry. |
 | `froodbase_unavailable: true` | Carry on without Froodbase. Tell the person the findings were not recorded. |
