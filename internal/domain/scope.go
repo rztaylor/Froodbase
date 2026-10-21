@@ -115,7 +115,9 @@ func above(lo, hi string) bool {
 // leading zeros, and false when s is blank or not a version.
 func versionBound(s string) ([]string, bool) {
 	s = strings.TrimSpace(s)
-	s = strings.TrimPrefix(strings.TrimPrefix(s, "v"), "V")
+	if strings.HasPrefix(s, "v") || strings.HasPrefix(s, "V") {
+		s = s[1:]
+	}
 	if s == "" {
 		return nil, false
 	}

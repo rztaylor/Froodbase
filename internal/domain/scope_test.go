@@ -82,6 +82,9 @@ func TestScopeValidate(t *testing.T) {
 		{"word", domain.Scope{VersionMax: "latest"}, domain.ErrInvalidScopeVersion},
 		{"empty segment", domain.Scope{VersionMin: "2..4"}, domain.ErrInvalidScopeVersion},
 		{"bare v", domain.Scope{VersionMin: "v"}, domain.ErrInvalidScopeVersion},
+		{"two prefixes", domain.Scope{VersionMin: "vV2.3"}, domain.ErrInvalidScopeVersion},
+		{"capital V", domain.Scope{VersionMin: "V2.3"}, nil},
+		{"spaces around", domain.Scope{VersionMin: " 2.3 "}, nil},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
