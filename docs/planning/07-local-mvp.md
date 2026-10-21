@@ -126,7 +126,7 @@ Exit: in Claude, a person describes a finding in plain words and Claude contribu
 | `froodbase-mcp` | Modes and as-of exposed on the tools |
 | `froodbase-dreamer` | Review sweep marking records past `review_due_at` and stale `verified_at` |
 
-Exit: the pitch's worked example (failure on 2.3, fix merged, 2.4 deployed and verified, older investigation imported later) is a named integration test and a Claude walkthrough; a current query never returns the superseded failure, an as-of query for the incident date does, and the late import does not reopen it.
+Exit: the pitch's worked example (failure on 2.3, fix merged, 2.4 deployed and verified, older investigation imported later) is a named integration test and a Claude walkthrough; a current query never returns the superseded failure, an as-of query for the incident date does, and the late import does not reopen it. The exit is proven by `TestSlice2Exit` and the walkthrough in `docs/dev/guides/pitch-walkthrough.md`.
 
 ### Slice 3: relationships and lessons
 
