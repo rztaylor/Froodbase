@@ -15,7 +15,7 @@ import (
 
 // LifecycleActive is the state every record enters (TR-40). The lifecycle
 // state machine arrives in a later slice; until then records are active.
-const LifecycleActive = "active"
+const LifecycleActive = string(domain.LifecycleActive)
 
 // The record types named in revision, support_event and audit_event rows.
 const (

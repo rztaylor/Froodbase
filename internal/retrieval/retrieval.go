@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/rztaylor/froodbase/internal/authz"
 	"github.com/rztaylor/froodbase/internal/contribute"
@@ -20,11 +21,12 @@ var ErrNotFound = errors.New("retrieval: record not found")
 type Service struct {
 	pool  *store.Pool
 	areas contribute.Areas
+	now   func() time.Time
 }
 
 // New builds the service.
 func New(pool *store.Pool, areas contribute.Areas) *Service {
-	return &Service{pool: pool, areas: areas}
+	return &Service{pool: pool, areas: areas, now: time.Now}
 }
 
 // GetRecord reads one record of any type by id.
@@ -41,7 +43,11 @@ func (s *Service) GetRecord(ctx context.Context, ac *authz.Context, in wire.GetR
 		return wire.Record{}, err
 	}
 	if a, err := s.pool.GetAssertion(ctx, caller, id); err == nil {
-		return s.assertionRecord(ctx, caller, a)
+		mode, err := s.pool.ClassifyAssertion(ctx, caller, id, domain.HistoricalQuery(), s.now().UTC())
+		if err != nil {
+			return wire.Record{}, err
+		}
+		return s.assertionRecord(ctx, caller, a, mode)
 	} else if !errors.Is(err, store.ErrNotFound) {
 		return wire.Record{}, err
 	}
@@ -104,7 +110,10 @@ func (s *Service) GetHistory(ctx context.Context, ac *authz.Context, in wire.Get
 	return out, nil
 }
 
-func (s *Service) assertionRecord(ctx context.Context, caller store.Caller, a store.AssertionRecord) (wire.Record, error) {
+// assertionRecord shapes an assertion with its support, citations and
+// derivations, labelled with the status and stale flag the SQL mode
+// predicate gave it.
+func (s *Service) assertionRecord(ctx context.Context, caller store.Caller, a store.AssertionRecord, mode domain.ModeResult) (wire.Record, error) {
 	area, err := s.areas.AreaKey(ctx, a.Assertion.AreaID)
 	if err != nil {
 		return wire.Record{}, err
@@ -133,6 +142,7 @@ func (s *Service) assertionRecord(ctx context.Context, caller store.Caller, a st
 		LifecycleState: a.LifecycleState, Revision: a.Revision, Support: SupportSummary(a.SupportScore, a.SupportConfigVersion, events, cfg, a.Assertion.Kind),
 		Scope: scopeToWire(a.Assertion.Scope), ValidFrom: a.Assertion.ValidFrom, ValidTo: a.Assertion.ValidTo, ValidityUnknown: a.Assertion.ValidityUnknown(),
 		RecordedAt: a.Assertion.RecordedAt, VerifiedAt: a.Assertion.VerifiedAt, ReviewDueAt: a.Assertion.ReviewDueAt, NeedsReconsideration: a.NeedsReconsideration,
+		Status: string(mode.Status), Stale: mode.Stale,
 		Subject: string(a.Assertion.SubjectEntityID), BodyMarkdown: a.Assertion.BodyMarkdown,
 	}
 	for _, ev := range evidence {
@@ -154,9 +164,12 @@ func (s *Service) entityRecord(ctx context.Context, e store.EntityRecord) (wire.
 	for _, n := range e.Entity.Names {
 		view.Names = append(view.Names, wire.Name{Name: n.Name, Scope: scopeToWire(n.Scope), ValidFrom: n.ValidFrom, ValidTo: n.ValidTo})
 	}
+	// An entity has no validity of its own, only its names do: by itself it
+	// is current while in force.
+	status := domain.ModeRecord{State: domain.LifecycleState(e.LifecycleState)}.StatusAt(s.now())
 	return wire.Record{
 		ID: string(e.Entity.ID()), RecordType: store.RecordEntity, Area: area, AreaID: string(e.Entity.AreaID),
-		LifecycleState: e.LifecycleState, Revision: e.Revision, Entity: view,
+		LifecycleState: e.LifecycleState, Revision: e.Revision, Entity: view, Status: string(status),
 	}, nil
 }
 

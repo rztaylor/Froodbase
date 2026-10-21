@@ -3,6 +3,8 @@ package store
 import (
 	"context"
 	"time"
+
+	"github.com/rztaylor/froodbase/internal/domain"
 )
 
 // SetFailAt makes the next writes fail at the named step ("revision",
@@ -28,3 +30,6 @@ func (p *Pool) MigrateTo(ctx context.Context, version int64) error {
 	_, err = provider.UpTo(ctx, version)
 	return err
 }
+
+// ScopeBytes is the stored JSONB form of a scope.
+func ScopeBytes(s domain.Scope) []byte { return scopeBytes(s) }

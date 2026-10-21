@@ -30,6 +30,9 @@ var (
 	ErrInvalidLink = errors.New("store: an evidence link must name an existing claim once and cite evidence")
 	// ErrNoCaller means the caller has no user id.
 	ErrNoCaller = errors.New("store: caller has no user id")
+	// ErrNoReferenceTime means a temporal read was given no "now" to label
+	// records against.
+	ErrNoReferenceTime = errors.New("store: temporal read has no reference time")
 )
 
 const (

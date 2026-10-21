@@ -22,6 +22,7 @@ const (
 	ToolGetRecord  = "get_record"
 	ToolGetHistory = "get_history"
 	ToolSearch     = "search"
+	ToolGetAsOf    = "get_as_of"
 )
 
 // WhoamiOutput is the whoami tool's structured result.
@@ -78,7 +79,13 @@ type Handlers struct {
 	GetRecord  func(ctx context.Context, in wire.GetRecordInput) (wire.Record, error)
 	GetHistory func(ctx context.Context, in wire.GetHistoryInput) (wire.HistoryOutput, error)
 	Search     func(ctx context.Context, in wire.SearchInput) (wire.SearchOutput, error)
+	GetAsOf    func(ctx context.Context, in wire.GetAsOfInput) (wire.GetAsOfOutput, error)
 }
+
+// recordLabels is how every reading tool's description explains a record's
+// temporal fields (PR-22, TR-31, TR-53).
+const recordLabels = "Each record carries status relative to now: current (in force and valid now; no valid_to means not known to have ended, which is not the same as verified current), historical (superseded, retracted or valid only before now: never present it as current state) or upcoming (valid only from later). " +
+	"validity_unknown: true means nobody gave its validity dates, so it is not ruled out at any time and is not verified current; verified_at says when it was last checked, and stale: true means it is current but unchecked for longer than its area's freshness policy allows: it is still returned, so say it may be out of date."
 
 // New builds an MCP server exposing the tools whose handlers are set.
 func New(version string, h Handlers) *mcp.Server {
@@ -99,6 +106,7 @@ func New(version string, h Handlers) *mcp.Server {
 				"Each assertion has a kind that never changes: observation (what was seen; cites evidence, never derived), decision (what was approved or intended) or inference (what was concluded). " +
 				"When you conclude something from records you have read, record it as an inference (or a decision) with derived_from naming those assertions (refs in this call or ids in the area), evidence of its own, or both: it starts with the distinct evidence roots of its sources and stays labelled derived. " +
 				"Deriving from another area, an unknown id or in a loop is refused. The observations list is the older form of assertions of kind observation. " +
+				"Give an assertion valid_from and valid_to (RFC 3339; valid_to is exclusive) only when the source says when it held, and scope (environment, region, version_min, version_max, cluster, tenant; versions such as 2.3 or v2.4.1, both bounds for one version) when it applies only somewhere: leave out what you do not know. A missing date stays unknown and is never taken from when you record it; such a record is marked validity_unknown. " +
 				"Every record is active at once with the support its distinct evidence roots give it; there is no approval step, and below the kind's threshold it is still stored and returned. Reports, conversations and transcripts are never sent: contribute individual findings with their own citations. " +
 				"Leave out what the server fills in: ref on any record nothing in the call refers to; source_kind when source_uri is a work item, Jira or GitHub issue, a GitHub, GitLab, Bitbucket or Azure DevOps repository URL, a Confluence, SharePoint or Azure DevOps wiki page, or one of the command or person schemes; access_class when it is area (say restricted when the source is); source_revision for a repository URL with a full commit SHA in it, and for commands and statements. Search before creating an entity, and cite existing records by id. " +
 				"To add a new source to a claim already recorded (found with search), do not record the claim again, which earns nothing: list it under links as {claim: <its id>, evidence: [<evidence refs in this call or evidence ids>]}. The claim gains one root per distinct source it did not count yet, keeps its revision, and deductions derived from it gain the root shortly after; evidence it already counts adds nothing. " +
@@ -109,7 +117,7 @@ func New(version string, h Handlers) *mcp.Server {
 	if h.GetRecord != nil {
 		mcp.AddTool(s, &mcp.Tool{
 			Name:        ToolGetRecord,
-			Description: "Read one record (an entity, an assertion or an evidence record) by id with its kind, lifecycle state, support, scope, validity, verification date, citations and, for a deduction, derived: true with the ids it was derived_from. Records outside your knowledge areas are reported as not found.",
+			Description: "Read one record (an entity, an assertion or an evidence record) by id with its kind, lifecycle state, support, scope, validity, verification date, citations and, for a deduction, derived: true with the ids it was derived_from. Records outside your knowledge areas are reported as not found. " + recordLabels,
 			Annotations: &mcp.ToolAnnotations{ReadOnlyHint: true},
 		}, wrap(h.GetRecord))
 	}
@@ -117,9 +125,20 @@ func New(version string, h Handlers) *mcp.Server {
 		mcp.AddTool(s, &mcp.Tool{
 			Name: ToolSearch,
 			Description: "Search the knowledge areas you can read by an entity name (exact or near-miss; a near-miss is a candidate for you to confirm, never resolved for you) or by words in assertion bodies. " +
-				"Results carry kind, lifecycle state, support, scope, validity, verification date, citations and which channel matched. Nothing is reported about records you cannot read. Optional area limits the search to one area key.",
+				"Results carry kind, lifecycle state, support, scope, validity, verification date, citations and which channel matched. Nothing is reported about records you cannot read. Optional area limits the search to one area key. " +
+				"mode says which time you ask about: current (the default) keeps what is in force and valid now; as_of with as_of (RFC 3339) keeps what was valid at that time by when it applied, not when it was recorded, so a record imported later about an earlier time is included, and superseded records are kept, labelled; historical keeps everything. " +
+				"Use current for what is true now, as_of for what was true then (an incident's time), historical for past cases as analogues. Optional scope (environment, region, version_min, version_max, cluster, tenant) keeps records whose scope overlaps it; a dimension either side leaves out matches anything. " + recordLabels,
 			Annotations: &mcp.ToolAnnotations{ReadOnlyHint: true},
 		}, wrap(h.Search))
+	}
+	if h.GetAsOf != nil {
+		mcp.AddTool(s, &mcp.Tool{
+			Name: ToolGetAsOf,
+			Description: "Read one assertion or entity by id as valid at as_of (RFC 3339), judged by when it applied (its validity), not when it was recorded: a record recorded later but valid earlier is valid then. " +
+				"valid: true returns the record (an entity with only the names valid then); valid: false gives the reason (valid only later, ended before, or retracted) and no record. A record whose validity is unknown is not ruled out at any time and comes back marked validity_unknown. " +
+				"The record is what Froodbase knows now about that time; get_history shows what it held at each recording. " + recordLabels,
+			Annotations: &mcp.ToolAnnotations{ReadOnlyHint: true},
+		}, wrap(h.GetAsOf))
 	}
 	if h.GetHistory != nil {
 		mcp.AddTool(s, &mcp.Tool{
