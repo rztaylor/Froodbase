@@ -1,6 +1,6 @@
 ---
 name: froodbase-contribute
-description: Use when recording knowledge in Froodbase through its contribute tool. That covers a person saying in plain words what they learned, found, concluded or decided ("remember that...", "record this", "note in Froodbase that..."), and an investigation turning up a finding that others could check. Teaches how to turn the finding into a contribute change set without asking the person for fields. Search first, cite existing records, pick the evidence kind and the assertion kind, record deductions with their sources and commands as command evidence, add new sources to claims already recorded instead of recording them again, keep secrets out, and report the ids written.
+description: Use when recording knowledge in Froodbase through its contribute tool. That covers a person saying in plain words what they learned, found, concluded or decided ("remember that...", "record this", "note in Froodbase that..."), an investigation turning up a finding that others could check, and a request to record the useful information in a document. Teaches how to turn the finding into a contribute change set without asking the person for fields. Search first, cite existing records, pick the evidence kind and the assertion kind, record deductions with their sources and commands as command evidence, add new sources to claims already recorded instead of recording them again, extract a document's findings with a citation to each section without sending the document, keep secrets out, and report the ids written.
 ---
 
 # Recording findings in Froodbase
@@ -11,7 +11,7 @@ Tools (MCP server `froodbase`): `whoami`, `search`, `get_record`, `get_history`,
 
 ## Never send
 
-- Reports, conversations, transcripts or whole documents. Send individual findings, each with its own citation.
+- Reports, conversations, transcripts or whole documents. Send individual findings, each with its own citation (see Recording the findings in a document).
 - Secrets. Replace any password, token, key, connection-string secret or signed URL with `***` in commands and output before you send them. Froodbase refuses anything that looks like a secret.
 - Local paths (`/Users/...`, `C:\...`, `file://`) or URLs on this machine. They are refused because nobody else can check them.
 
@@ -79,6 +79,44 @@ When a claim is already recorded and you have found a source it does not cite ye
 - `claim` is an id, of a claim in the area you contribute to. A claim in the same call takes its evidence in its own `evidence` list, not under `links`.
 - You can add links in the same call as new records. A deduction in that call derived from a linked claim inherits the new roots at once.
 - If what you found changes the claim (narrower scope, a different version, a correction), it is a new claim, not more evidence for the old one.
+
+## Recording the findings in a document
+
+When the person says "record the useful information in this document", read the document with your own tools and contribute its findings one by one. Never send the document, a summary of it or its sections. Froodbase only holds each finding, its citation and at most a short excerpt.
+
+1. **Where it lives decides what you cite.**
+   - **In a repository** (committed and pushed) or on a wiki page at a known version: the document is the source. For a local checkout, build the permalink from `git remote get-url origin` and `git log -1 --format=%H -- <path>`, and check that the commit is pushed (`git branch -r --contains <sha>`). Never cite `main` or a branch.
+   - **Only on this computer** (a local file, a download, an unpushed draft): it cannot be cited, because nobody else can open it. Cite what it relied on instead: the tickets, pull requests and pages it names, the commands it quotes (re-run them if you can and cite your run), and the person's own knowledge as a `statement` if they agree to state it. Ask them once, listing those findings, before you record any statement for them.
+2. **Search first**, for every system the document names and for its main findings (step 2 of Recording a finding). Use existing entities as subjects, so the document's systems join the records the area already has. A finding that is already recorded is not recorded again. If the document only restates a source that claim already cites (it quotes the same ticket), it adds nothing, so tell the person. If it has a source of its own (a measurement, a code reference), add it under `links`.
+3. **Sort each statement in the document.**
+   - What it reports seeing (a measurement, a log line, a configuration) is an `observation` citing its section.
+   - What it concludes is an `inference` derived from the records it rests on (the observations in this call, or recorded ones), citing the section where it is concluded. A conclusion the document marks as a guess or unmeasured is still an inference. It just stays below its threshold.
+   - What it decided or agreed is a `decision` citing the section, derived from what it rests on when the document says so. Set `valid_from` only when the document states the date.
+   - Open questions, to-dos, opinions without a claim, and anything you cannot point to a section for are not findings. Do not record them. List them back to the person.
+4. **One source, many sections.** Record the document once, with no `locator`, first in `evidence`. Then record one evidence per section you cite, with the section heading as `locator` (add a line range when the section is long) and `root` set to the document's ref. The document then counts as one root however many sections you cite, so two of its own findings never corroborate each other. A section that restates another source you cite (a ticket it quotes) names that source as its `root` instead. A `root` always names an original, and comes earlier in `evidence` than the records that name it. If the document at that commit is already recorded, cite its `evidence_id` as the root rather than recording it again.
+5. **One change set** for the whole document, with one idempotency key (`<user>-<document slug>`) and a `rationale` naming the document. Each finding stays its own assertion.
+6. **Report** as usual, and add what you did not record: the open questions, the findings already recorded, and for a local file, each finding with nothing checkable behind it, so the person can point you to a source or state it themselves. Never store such a finding with an invented citation.
+
+A document in a repository, with one observation and the inference drawn from it plus one recorded observation:
+
+```json
+{
+  "area": "demo",
+  "idempotency_key": "bob-sample-design-note",
+  "rationale": "findings of the sample design note",
+  "evidence": [
+    {"ref": "doc", "source_uri": "https://github.com/rztaylor/Froodbase/blob/<sha>/docs/dev/guides/sample-design-note.md"},
+    {"ref": "measurements", "source_uri": "https://github.com/rztaylor/Froodbase/blob/<sha>/docs/dev/guides/sample-design-note.md", "locator": "Measurements", "root": "doc"},
+    {"ref": "analysis", "source_uri": "https://github.com/rztaylor/Froodbase/blob/<sha>/docs/dev/guides/sample-design-note.md", "locator": "Analysis", "root": "doc"}
+  ],
+  "assertions": [
+    {"ref": "measured", "kind": "observation", "subject": "<import tool id>", "body_markdown": "In staging, callbacks on 2.3.0 took 30.2 seconds on average, against 1.1 seconds on 2.2.4", "evidence": ["measurements"], "scope": {"environment": "staging", "version_min": "2.3.0", "version_max": "2.3.0"}},
+    {"kind": "inference", "subject": "<import tool id>", "body_markdown": "The 2.3 retry waits out the full 30 second timeout before each retry", "derived_from": ["<recorded observation id>", "measured"], "evidence": ["analysis"]}
+  ]
+}
+```
+
+The development guide has the whole worked example ("Recording the findings in a document").
 
 ## What the server fills in
 
