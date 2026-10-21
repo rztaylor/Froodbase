@@ -93,7 +93,9 @@ func New(version string, h Handlers) *mcp.Server {
 	if h.Contribute != nil {
 		mcp.AddTool(s, &mcp.Tool{
 			Name: ToolContribute,
-			Description: "Record findings in a knowledge area as one atomic change set: entities, assertions about them and the shareable evidence (https sources with a revision) behind them. " +
+			Description: "Record findings in a knowledge area as one atomic change set: entities, assertions about them and the evidence behind them, which the area's audience must be able to check: an https source at a revision (repository, ticket, telemetry_query, document); " +
+				"a command you ran (source_kind command: source_uri is what was observed as azure:///<ARM id>, k8s://<cluster>/<namespace>/<kind>/<name>, sql://<server>/<database> or host://<name>; locator is the exact command with secrets removed; observed_at when it ran; excerpt the output relied on; each run is its own root); " +
+				"or the person you act for's own statement (source_kind statement: excerpt is what they said, observed_at when; source_uri person://<their user id> is filled in; never someone else's, and it counts for less than an observed source). Never include secrets: anything that looks like a password, token or key is refused. " +
 				"Each assertion has a kind that never changes: observation (what was seen; cites evidence, never derived), decision (what was approved or intended) or inference (what was concluded). " +
 				"When you conclude something from records you have read, record it as an inference (or a decision) with derived_from naming those assertions (refs in this call or ids in the area), evidence of its own, or both: it starts with the distinct evidence roots of its sources and stays labelled derived. " +
 				"Deriving from another area, an unknown id or in a loop is refused. The observations list is the older form of assertions of kind observation. " +

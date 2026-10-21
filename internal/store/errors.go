@@ -48,7 +48,7 @@ func mapErr(err error) error {
 		switch {
 		case pgErr.Code == sqlstateInsufficientPrivilege:
 			return errors.Join(ErrForbidden, err)
-		case pgErr.Code == sqlstateUniqueViolation && pgErr.ConstraintName == "evidence_source":
+		case pgErr.Code == sqlstateUniqueViolation && (pgErr.ConstraintName == "evidence_source" || pgErr.ConstraintName == "evidence_statement"):
 			return errors.Join(ErrDuplicateEvidence, err)
 		}
 	}

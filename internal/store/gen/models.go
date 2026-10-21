@@ -154,6 +154,7 @@ type SupportConfig struct {
 	ThresholdByKind        []byte
 	AllowedContributors    []byte
 	RecordedAt             time.Time
+	RootWeightBySourceKind []byte
 }
 
 type SupportEvent struct {
@@ -170,4 +171,5 @@ type SupportEvent struct {
 	ConfigVersion   string
 	Rationale       string
 	At              time.Time
+	SourceKind      *string
 }

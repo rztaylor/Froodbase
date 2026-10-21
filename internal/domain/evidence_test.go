@@ -89,8 +89,8 @@ func TestEvidenceValidate(t *testing.T) {
 
 func TestParseSourceKind(t *testing.T) {
 	kinds := SourceKinds()
-	if len(kinds) != 4 {
-		t.Fatalf("SourceKinds() = %v, want four documented kinds", kinds)
+	if len(kinds) != 6 {
+		t.Fatalf("SourceKinds() = %v, want six documented kinds", kinds)
 	}
 	for _, k := range kinds {
 		if got, err := ParseSourceKind(string(k)); err != nil || got != k {

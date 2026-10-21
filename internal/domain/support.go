@@ -67,9 +67,12 @@ func ParseSupportEventType(s string) (SupportEventType, error) {
 // (TR-29): what happened, which evidence roots it concerns, where it applies,
 // who or which job appended it, the configuration version in force, why, and
 // when. It never carries a score: the score is projected from the events.
+// A root_added event also carries its root's source kind, which the
+// configuration weighs; it is empty on events that predate it.
 type SupportEvent struct {
 	Type            SupportEventType
 	EvidenceRootIDs []ID
+	SourceKind      SourceKind // the root's source kind, on a root_added event
 	Scope           Scope
 	ActorUserID     ID     // the person, when a person or their agent appended it
 	ActorAgentID    ID     // the agent acting for them, if any
@@ -106,11 +109,15 @@ func (e SupportEvent) Validate() error {
 const DefaultSupportConfigVersion = "service-1"
 
 // SupportConfig is an area's versioned support configuration (TR-43): the
-// weight of each event type, the cap on quiet-use credit, the threshold per
-// kind below which answers carry insufficient_evidence, and who may write.
+// weight of each event type, the weight of a root by its source kind (a
+// root_added event earns its event weight times its root's weight, so a
+// person's statement can count less than an observed source), the cap on
+// quiet-use credit, the threshold per kind below which answers carry
+// insufficient_evidence, and who may write.
 type SupportConfig struct {
 	Version                string
 	EventWeights           map[SupportEventType]float64
+	RootWeightBySourceKind map[SourceKind]float64
 	UseWithoutChallengeCap float64
 	ThresholdByKind        map[EpistemicKind]float64
 	AllowedContributors    AllowedContributors
@@ -123,10 +130,21 @@ type AllowedContributors struct {
 	SourceKinds []SourceKind
 }
 
+// DefaultStatementRootWeight is the service default weight of a root that is
+// a person's statement: half an observed source, so one statement alone does
+// not meet an observation's threshold.
+const DefaultStatementRootWeight = 0.5
+
 // DefaultSupportConfig returns the configuration the service ships. The
-// migration seeds the same values; an area can version its own within these
-// rules.
+// migrations seed the same values; an area can version its own within these
+// rules. Every observed source kind weighs 1, the weight every root had
+// before root weights existed.
 func DefaultSupportConfig() SupportConfig {
+	roots := make(map[SourceKind]float64, len(SourceKinds()))
+	for _, k := range SourceKinds() {
+		roots[k] = 1
+	}
+	roots[SourceStatement] = DefaultStatementRootWeight
 	return SupportConfig{
 		Version: DefaultSupportConfigVersion,
 		EventWeights: map[SupportEventType]float64{
@@ -140,6 +158,7 @@ func DefaultSupportConfig() SupportConfig {
 			SupportFlagged:             -1,
 			SupportSupportRetracted:    -1,
 		},
+		RootWeightBySourceKind: roots,
 		UseWithoutChallengeCap: 0.5,
 		ThresholdByKind: map[EpistemicKind]float64{
 			KindObservation: 1,
@@ -154,8 +173,9 @@ func DefaultSupportConfig() SupportConfig {
 }
 
 // Validate checks the configuration against the service bounds: a version,
-// a finite weight for every event type with the sign its type allows, a
-// non-negative cap below the inference threshold (quiet use alone never
+// a finite weight for every event type with the sign its type allows, a root
+// weight between 0 and 1 for every source kind (one root never counts as
+// more than one), a non-negative cap below the inference threshold (quiet use alone never
 // carries an inference past it, PR-15), and a non-negative threshold for
 // every epistemic kind.
 func (c SupportConfig) Validate() error {
@@ -174,6 +194,17 @@ func (c SupportConfig) Validate() error {
 		}
 		if t.Raises() && w < 0 || !t.Raises() && w > 0 {
 			return fieldErr("support config weight "+string(t), ErrInvalidSupportConfig)
+		}
+	}
+	for k := range c.RootWeightBySourceKind {
+		if !k.Valid() {
+			return fieldErr("support config root weight "+string(k), ErrInvalidSupportConfig)
+		}
+	}
+	for _, k := range SourceKinds() {
+		w, ok := c.RootWeightBySourceKind[k]
+		if !ok || math.IsNaN(w) || w < 0 || w > 1 {
+			return fieldErr("support config root weight "+string(k), ErrInvalidSupportConfig)
 		}
 	}
 	for _, k := range EpistemicKinds() {
@@ -195,11 +226,25 @@ func (c SupportConfig) MeetsThreshold(kind EpistemicKind, score float64) bool {
 	return ok && score >= th
 }
 
+// RootWeight is the weight of a root of source kind k. A root whose kind
+// was not recorded (events that predate root weights) weighs 1, as every
+// root did then.
+func (c SupportConfig) RootWeight(k SourceKind) float64 {
+	if w, ok := c.RootWeightBySourceKind[k]; ok {
+		return w
+	}
+	return 1
+}
+
 func (c SupportConfig) clone() SupportConfig {
 	out := c
 	out.EventWeights = make(map[SupportEventType]float64, len(c.EventWeights))
 	for k, v := range c.EventWeights {
 		out.EventWeights[k] = v
+	}
+	out.RootWeightBySourceKind = make(map[SourceKind]float64, len(c.RootWeightBySourceKind))
+	for k, v := range c.RootWeightBySourceKind {
+		out.RootWeightBySourceKind[k] = v
 	}
 	out.ThresholdByKind = make(map[EpistemicKind]float64, len(c.ThresholdByKind))
 	for k, v := range c.ThresholdByKind {
@@ -209,7 +254,8 @@ func (c SupportConfig) clone() SupportConfig {
 }
 
 // SupportScore projects a claim's support events to its score under cfg
-// (TR-29, TR-43): the sum of the weights of every event, with the quiet-use
+// (TR-29, TR-43): the sum of the weights of every event, a root_added event
+// weighted again by its root's source kind, with the quiet-use
 // credit capped at cfg.UseWithoutChallengeCap and the result floored at
 // zero. It is deterministic in the events and the configuration, so a stored
 // score can be recomputed and explained, and it depends on nothing else: not
@@ -225,9 +271,12 @@ func SupportScore(events []SupportEvent, cfg SupportConfig) (float64, error) {
 		if !ok {
 			return 0, fieldErr("support event type "+string(e.Type), ErrUnknownSupportEventType)
 		}
-		if e.Type == SupportUseWithoutChallenge {
+		switch e.Type {
+		case SupportUseWithoutChallenge:
 			quiet += w
 			continue
+		case SupportRootAdded:
+			w *= cfg.RootWeight(e.SourceKind)
 		}
 		score += w
 	}
@@ -240,6 +289,39 @@ func SupportScore(events []SupportEvent, cfg SupportConfig) (float64, error) {
 
 func roundScore(s float64) float64 {
 	return math.Round(s*10000) / 10000
+}
+
+// RootKindSupport is how many of a claim's roots are of one source kind and
+// what each weighs under the configuration.
+type RootKindSupport struct {
+	Kind   SourceKind
+	Roots  int
+	Weight float64
+}
+
+// RootsBySourceKind summarises a claim's root_added events by source kind,
+// in SourceKinds order with roots of no recorded kind last; nil when there
+// are none.
+func RootsBySourceKind(events []SupportEvent, cfg SupportConfig) []RootKindSupport {
+	counts := map[SourceKind]int{}
+	for _, e := range events {
+		if e.Type == SupportRootAdded {
+			counts[e.SourceKind]++
+		}
+	}
+	return SummariseRoots(counts, cfg)
+}
+
+// SummariseRoots turns counts of roots per source kind into the summary
+// RootsBySourceKind returns, with each kind's weight under cfg.
+func SummariseRoots(counts map[SourceKind]int, cfg SupportConfig) []RootKindSupport {
+	var out []RootKindSupport
+	for _, k := range append(SourceKinds(), "") {
+		if n := counts[k]; n > 0 {
+			out = append(out, RootKindSupport{Kind: k, Roots: n, Weight: cfg.RootWeight(k)})
+		}
+	}
+	return out
 }
 
 // DistinctRoots returns the distinct evidence roots among the given evidence

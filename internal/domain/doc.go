@@ -7,12 +7,14 @@
 // classes, support event types), record validation, what each kind must rest
 // on (an observation cites evidence; a decision or inference cites evidence,
 // is derived from other assertions, or both), derivation order and cycles,
-// the roots a deduction inherits from its sources, evidence shareability
-// (allowed source kinds and URI patterns; an access class never wider than
-// its source's), corroboration and distinct roots, and the support
-// projection: the service default support configuration, its bounds, and the
-// deterministic score of a claim's append-only support events under a
-// configuration (TR-29, TR-43). Constructors set recorded_at and never derive
+// the roots a deduction inherits from its sources, evidence that the
+// audience can check (source kinds, including command observations and
+// personal statements, their URI patterns and required fields; an access
+// class never wider than its source's; nothing that looks like a secret),
+// corroboration and distinct roots, and the support projection: the service
+// default support configuration, its bounds, root weights by source kind,
+// and the deterministic score of a claim's append-only support events under
+// a configuration (TR-29, TR-43). Constructors set recorded_at and never derive
 // validity from it. Scope overlap and query modes arrive in slice 2;
 // relationships, lessons and lifecycle in later slices.
 //

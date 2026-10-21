@@ -62,6 +62,17 @@ var (
 	// ErrNoRevision means evidence does not say which revision or snapshot
 	// of its source it cites (PR-10).
 	ErrNoRevision = errors.New("domain: source revision is empty")
+	// ErrNoObservedAt means a command observation or a statement does not
+	// say when it ran or was made.
+	ErrNoObservedAt = errors.New("domain: observed_at is required: say when the command ran or the statement was made")
+	// ErrNoCommand means a command observation does not give the command or
+	// query it ran in its locator.
+	ErrNoCommand = errors.New("domain: a command observation gives the exact command or query it ran, secrets removed, as its locator")
+	// ErrNoStatement means a statement has no excerpt saying what was stated.
+	ErrNoStatement = errors.New("domain: a statement gives what was stated as its excerpt")
+	// ErrLooksLikeSecret means a URI, locator or excerpt looks like it holds a
+	// credential; Froodbase never stores secrets.
+	ErrLooksLikeSecret = errors.New("domain: looks like it holds a secret")
 	// ErrAccessTooPermissive means evidence claims a wider audience than its source allows (TR-61).
 	ErrAccessTooPermissive = errors.New("domain: access class is more permissive than the source's")
 )
