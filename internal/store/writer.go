@@ -43,7 +43,12 @@ type Contribution struct {
 	Evidence      []domain.Evidence
 	ClaimEvidence map[domain.ID][]domain.ID
 	Derivations   []domain.Derivation
-	Rationale     string
+	// Links cite further evidence, records in Evidence or evidence the area
+	// already holds, for claims the area already holds (FRB-57). They are
+	// written after Evidence and before Assertions, so a deduction in
+	// Assertions derived from a linked claim inherits its new roots.
+	Links     []EvidenceLink
+	Rationale string
 	// Idempotency, when set, stores the result under the caller's key in the
 	// same transaction (TR-15).
 	Idempotency *Idempotency
@@ -52,15 +57,33 @@ type Contribution struct {
 	Refs map[domain.ID]string
 }
 
+// EvidenceLink names evidence by id to link to an existing claim.
+type EvidenceLink struct {
+	ClaimID     domain.ID
+	EvidenceIDs []domain.ID
+}
+
+// LinkedClaim is an existing claim a contribution linked evidence to: its
+// kind and revision (a link writes no revision), the evidence linked, in
+// the order given, and the roots that added, which may be none.
+type LinkedClaim struct {
+	ID          domain.ID   `json:"id"`
+	Kind        string      `json:"kind"`
+	Revision    int         `json:"revision"`
+	EvidenceIDs []domain.ID `json:"evidence_ids"`
+	RootsAdded  []domain.ID `json:"roots_added,omitempty"`
+}
+
 // ContributionResult reports what the write produced. It is what an
 // idempotent retry returns, so it names every record written.
 type ContributionResult struct {
 	// ContributionID is the provenance episode written.
 	ContributionID domain.ID `json:"contribution_id"`
-	// Scores is the projected support score of every assertion written.
+	// Scores is the projected support score of every assertion written or
+	// linked.
 	Scores map[domain.ID]float64 `json:"scores"`
-	// Roots is the number of distinct evidence roots behind each assertion,
-	// cited directly or inherited from its sources.
+	// Roots is the number of distinct evidence roots behind each assertion
+	// written or linked, cited directly or inherited from its sources.
 	Roots map[domain.ID]int `json:"roots"`
 	// RootKinds counts each assertion's roots by source kind. Results stored
 	// before it existed lack it.
@@ -69,6 +92,9 @@ type ContributionResult struct {
 	ConfigVersion string `json:"config_version"`
 	// Written lists every record in the order written.
 	Written []WrittenRecord `json:"written"`
+	// Linked lists the existing claims evidence was linked to, in the order
+	// given. Results stored before links existed lack it.
+	Linked []LinkedClaim `json:"linked,omitempty"`
 	// Replayed is true when the result came from a stored idempotency key.
 	Replayed bool `json:"-"`
 }
@@ -105,9 +131,11 @@ func (p *Pool) CreateArea(ctx context.Context, caller Caller, area domain.Area) 
 // event per record, one root_added support event per distinct evidence root
 // of each assertion, cited directly or inherited from its sources, with the
 // score projected under the area's current support configuration (TR-29,
-// TR-43), and an index job per entity and assertion. Assertions are written
-// sources first. Every assertion enters active (PR-40). A source that is
-// unknown (ErrNotFound), in another area (ErrCrossArea) or part of a cycle
+// TR-43), and an index job per entity and assertion. Links then add
+// evidence to existing claims as LinkEvidence does, before the assertions
+// are written sources first. Every assertion enters active (PR-40). A
+// source, linked claim or cited evidence that is unknown (ErrNotFound), in
+// another area (ErrCrossArea) or a source that is part of a cycle
 // (domain.ErrDerivationCycle) refuses the whole contribution.
 func (p *Pool) Contribute(ctx context.Context, caller Caller, c Contribution) (*ContributionResult, error) {
 	if err := c.validate(caller); err != nil {
@@ -149,9 +177,17 @@ func (p *Pool) Contribute(ctx context.Context, caller Caller, c Contribution) (*
 			written[ev.ID] = ev
 			res.Written = append(res.Written, WrittenRecord{Ref: c.Refs[ev.ID], ID: ev.ID, RecordType: RecordEvidence})
 		}
+		for _, l := range c.Links {
+			linked, score, roots, err := p.linkToClaim(ctx, tx, q, caller, area, l, written, cfg, c.Rationale, cc.ID, now)
+			if err != nil {
+				return err
+			}
+			res.support(l.ClaimID, score, roots)
+			res.Linked = append(res.Linked, linked)
+		}
 		for _, id := range order {
 			a := assertions[id]
-			evidence, err := p.resolveEvidence(ctx, q, written, c.ClaimEvidence[a.ID])
+			evidence, err := p.resolveEvidence(ctx, q, area, written, c.ClaimEvidence[a.ID])
 			if err != nil {
 				return err
 			}
@@ -162,14 +198,7 @@ func (p *Pool) Contribute(ctx context.Context, caller Caller, c Contribution) (*
 			if err := q.InsertContributionClaim(ctx, gen.InsertContributionClaimParams{ContributionID: string(cc.ID), ClaimID: string(a.ID), AreaID: area}); err != nil {
 				return err
 			}
-			res.Scores[a.ID] = score
-			for _, r := range roots {
-				res.Roots[a.ID] += r.Roots
-				if res.RootKinds[a.ID] == nil {
-					res.RootKinds[a.ID] = map[domain.SourceKind]int{}
-				}
-				res.RootKinds[a.ID][r.Kind] = r.Roots
-			}
+			res.support(a.ID, score, roots)
 			res.Written = append(res.Written, WrittenRecord{Ref: c.Refs[a.ID], ID: a.ID, RecordType: RecordAssertion, Kind: string(a.Kind)})
 		}
 		if c.Idempotency != nil {
@@ -226,7 +255,38 @@ func (c Contribution) validate(caller Caller) error {
 			return fmt.Errorf("derivation of %s: %w", d.DerivedID, ErrForbidden)
 		}
 	}
+	newClaims := make(map[domain.ID]bool, len(c.Assertions))
+	for _, a := range c.Assertions {
+		newClaims[a.ID] = true
+	}
+	linked := make(map[domain.ID]bool, len(c.Links))
+	for _, l := range c.Links {
+		if err := l.ClaimID.Validate(); err != nil {
+			return fmt.Errorf("link claim: %w", err)
+		}
+		if newClaims[l.ClaimID] || linked[l.ClaimID] || len(l.EvidenceIDs) == 0 {
+			return fmt.Errorf("link to %s: %w", l.ClaimID, ErrInvalidLink)
+		}
+		linked[l.ClaimID] = true
+		for _, id := range l.EvidenceIDs {
+			if err := id.Validate(); err != nil {
+				return fmt.Errorf("link to %s: evidence: %w", l.ClaimID, err)
+			}
+		}
+	}
 	return nil
+}
+
+// support records a claim's score and roots by source kind in the result.
+func (res *ContributionResult) support(id domain.ID, score float64, roots []domain.RootKindSupport) {
+	res.Scores[id] = score
+	for _, r := range roots {
+		res.Roots[id] += r.Roots
+		if res.RootKinds[id] == nil {
+			res.RootKinds[id] = map[domain.SourceKind]int{}
+		}
+		res.RootKinds[id][r.Kind] = r.Roots
+	}
 }
 
 // assertionOrder returns the assertion ids sources first, the assertions by
@@ -380,15 +440,34 @@ func (p *Pool) LinkEvidence(ctx context.Context, caller Caller, claimID domain.I
 				return err
 			}
 		}
-		linked, err := p.linkEvidence(ctx, tx, q, caller, cur, evidence, cfg, rationale, now)
-		if err != nil {
-			return err
-		}
-		score = linked
-		return p.audit(ctx, q, caller, cur.AreaID, AuditEvidenceLinked, cur.ID, RecordAssertion, int(cur.Revision),
-			map[string]any{"evidence_ids": evidenceIDs(evidence), "support_score": score, "rationale": rationale}, now)
+		score, _, _, err = p.linkEvidence(ctx, tx, q, caller, cur, evidence, cfg, rationale, "", now)
+		return err
 	})
 	return score, err
+}
+
+// linkToClaim links evidence, written earlier in this contribution or held
+// by the area, to an existing claim in the area. A claim or evidence the
+// caller cannot read is ErrNotFound; one in another area is ErrCrossArea.
+func (p *Pool) linkToClaim(ctx context.Context, tx pgx.Tx, q *gen.Queries, caller Caller, area string, l EvidenceLink, written map[domain.ID]domain.Evidence,
+	cfg domain.SupportConfig, rationale string, contribution domain.ID, now time.Time) (LinkedClaim, float64, []domain.RootKindSupport, error) {
+	cur, err := q.GetAssertion(ctx, string(l.ClaimID))
+	if err != nil {
+		return LinkedClaim{}, 0, nil, fmt.Errorf("evidence for claim %s: %w", l.ClaimID, mapErr(err))
+	}
+	if cur.AreaID != area {
+		return LinkedClaim{}, 0, nil, fmt.Errorf("evidence for claim %s: %w", l.ClaimID, ErrCrossArea)
+	}
+	evidence, err := p.resolveEvidence(ctx, q, area, written, l.EvidenceIDs)
+	if err != nil {
+		return LinkedClaim{}, 0, nil, fmt.Errorf("evidence for claim %s: %w", l.ClaimID, err)
+	}
+	score, events, added, err := p.linkEvidence(ctx, tx, q, caller, cur, evidence, cfg, rationale, contribution, now)
+	if err != nil {
+		return LinkedClaim{}, 0, nil, err
+	}
+	linked := LinkedClaim{ID: l.ClaimID, Kind: cur.EpistemicKind, Revision: int(cur.Revision), EvidenceIDs: l.EvidenceIDs, RootsAdded: added}
+	return linked, score, domain.RootsBySourceKind(events, cfg), nil
 }
 
 // PutSupportConfig records a new configuration version for an area (TR-43).
@@ -523,8 +602,10 @@ func (p *Pool) insertEvidence(ctx context.Context, q *gen.Queries, caller Caller
 }
 
 // resolveEvidence returns the evidence records behind ids: those written in
-// this contribution, else those the area already holds.
-func (p *Pool) resolveEvidence(ctx context.Context, q *gen.Queries, written map[domain.ID]domain.Evidence, ids []domain.ID) ([]domain.Evidence, error) {
+// this contribution, else those the area already holds. Evidence the caller
+// can read in another area is ErrCrossArea: a claim cites evidence in its
+// own area only.
+func (p *Pool) resolveEvidence(ctx context.Context, q *gen.Queries, area string, written map[domain.ID]domain.Evidence, ids []domain.ID) ([]domain.Evidence, error) {
 	out := make([]domain.Evidence, 0, len(ids))
 	for _, id := range ids {
 		if ev, ok := written[id]; ok {
@@ -534,6 +615,9 @@ func (p *Pool) resolveEvidence(ctx context.Context, q *gen.Queries, written map[
 		row, err := q.GetEvidence(ctx, string(id))
 		if err != nil {
 			return nil, fmt.Errorf("evidence %s: %w", id, mapErr(err))
+		}
+		if row.AreaID != area {
+			return nil, fmt.Errorf("evidence %s: %w", id, ErrCrossArea)
 		}
 		out = append(out, evidenceFromRow(row))
 	}
@@ -621,15 +705,29 @@ func (p *Pool) insertDerivations(ctx context.Context, q *gen.Queries, cur gen.Ge
 	return out, nil
 }
 
-// linkEvidence links evidence to the assertion, appends a root_added event
-// for each root the claim has not seen, re-projects the score from every
-// event under cfg and stores it. Idempotent for evidence already linked.
-func (p *Pool) linkEvidence(ctx context.Context, tx pgx.Tx, q *gen.Queries, caller Caller, cur gen.GetAssertionRow, evidence []domain.Evidence, cfg domain.SupportConfig, rationale string, now time.Time) (float64, error) {
+// linkEvidence links evidence to an existing assertion, appends a
+// root_added event for each root the claim has not seen, re-projects the
+// score from every event under cfg, stores it and audits evidence_linked,
+// naming the contribution when there is one. It writes no revision: the
+// claim's content is unchanged. Idempotent for evidence already linked. It
+// returns the score, the claim's events and the roots added.
+func (p *Pool) linkEvidence(ctx context.Context, tx pgx.Tx, q *gen.Queries, caller Caller, cur gen.GetAssertionRow, evidence []domain.Evidence,
+	cfg domain.SupportConfig, rationale string, contribution domain.ID, now time.Time) (float64, []domain.SupportEvent, []domain.ID, error) {
 	if err := insertClaimEvidence(ctx, q, cur, evidence); err != nil {
-		return 0, err
+		return 0, nil, nil, err
 	}
-	score, _, _, err := p.addRoots(ctx, tx, q, caller, cur, domain.DerivedRoots(evidence, nil), cfg, rationale, now)
-	return score, err
+	score, events, added, err := p.addRoots(ctx, tx, q, caller, cur, domain.DerivedRoots(evidence, nil), cfg, rationale, now)
+	if err != nil {
+		return 0, nil, nil, err
+	}
+	detail := map[string]any{"evidence_ids": evidenceIDs(evidence), "roots_added": len(added), "support_score": score, "rationale": rationale}
+	if contribution != "" {
+		detail["contribution_id"] = string(contribution)
+	}
+	if err := p.audit(ctx, q, caller, cur.AreaID, AuditEvidenceLinked, cur.ID, RecordAssertion, int(cur.Revision), detail, now); err != nil {
+		return 0, nil, nil, err
+	}
+	return score, events, added, nil
 }
 
 func insertClaimEvidence(ctx context.Context, q *gen.Queries, cur gen.GetAssertionRow, evidence []domain.Evidence) error {

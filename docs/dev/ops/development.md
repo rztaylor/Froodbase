@@ -125,7 +125,7 @@ Without Claude Code you can drive the binary over stdin; the stream must stay op
 
 ## Five-minute walkthrough in Claude
 
-You speak plainly; Claude structures the calls. The repository skill `.claude/skills/froodbase-contribute/SKILL.md` teaches Claude how: it searches before creating, picks the evidence and assertion kinds, records deductions with their sources and commands as command evidence, mints the idempotency key, leaves out what the server infers, and reports the ids it wrote. It asks you something only when a claim has nothing checkable behind it.
+You speak plainly; Claude structures the calls. The repository skill `.claude/skills/froodbase-contribute/SKILL.md` teaches Claude how: it searches before creating, picks the evidence and assertion kinds, records deductions with their sources and commands as command evidence, adds a new source to a claim already recorded instead of recording the claim again, mints the idempotency key, leaves out what the server infers, and reports the ids it wrote. It asks you something only when a claim has nothing checkable behind it.
 
 1. Start the stack and build the binaries:
 
@@ -137,13 +137,14 @@ You speak plainly; Claude structures the calls. The repository skill `.claude/sk
 3. Say: "What does Froodbase know about me?" Claude calls `whoami`: bob, with the contributor role in `demo`.
 4. Say: "Remember this for the import tool: callbacks on 2.3 fail because the new retry waits out the full 30 second timeout. It's in work item https://dev.azure.com/org/p/_workitems/edit/418, revision 12." Claude searches for the import tool, finds nothing, and contributes an entity, the work item as evidence and the observation, without asking for a kind, access class, ref or key. It reports each record's id and the observation's support (one root, threshold met).
 5. Say: "So the retry change is the cause, that's my conclusion." Claude records an inference derived from the observation and reports it as an inference below its threshold: one root, inherited from the work item.
-6. Say: "I also know we raised the timeout to 30 seconds in September." That is your own knowledge, so Claude records an observation citing your statement (`person://bob`), which weighs less than an observed source.
-7. Say: "Search Froodbase for Improt Tool." The entity comes back from the identifier channel as a candidate with its similarity; "callback" finds the observations from the full-text channel with their citations. Ask "show the history of the inference": `get_history` lists its revision, its `root_added` event and the observation it was derived from.
-8. Say the finding from step 4 again: Claude finds it by search and tells you it is already recorded instead of writing a duplicate. Ask it to retry its first call with the same idempotency key: `replayed: true` and the same ids, nothing written twice.
-9. Meanwhile `make logs` shows the dreamer's `index_record` lines for the records, and `curl -s http://127.0.0.1:8081/healthz` reports `index_stale: 0`.
-10. Register a second server entry as carol (reader) or use curl with `-u carol:froodbase-dev`: `get_record` and `search` work, `contribute` is refused with "contributor role required" and the refusal is in `audit_event`.
+6. Say: "Work item https://dev.azure.com/org/p/_workitems/edit/419, revision 3, shows the same callback failure." Claude finds the observation by search and adds the work item to it under `links` instead of recording it again. It reports the observation under `linked` with `roots_added: 1`, two roots and still revision 1. Ask for the inference a few seconds later: the dreamer has passed the new root on, so it has two roots and meets its threshold.
+7. Say: "I also know we raised the timeout to 30 seconds in September." That is your own knowledge, so Claude records an observation citing your statement (`person://bob`), which weighs less than an observed source.
+8. Say: "Search Froodbase for Improt Tool." The entity comes back from the identifier channel as a candidate with its similarity; "callback" finds the observations from the full-text channel with their citations. Ask "show the history of the inference": `get_history` lists its one revision, its two `root_added` events (the second appended by `reconsider_derived`, inherited from the observation) and the observation it was derived from.
+9. Say the finding from step 4 again: Claude finds it by search and tells you it is already recorded instead of writing a duplicate. Ask it to retry its first call with the same idempotency key: `replayed: true` and the same ids, nothing written twice.
+10. Meanwhile `make logs` shows the dreamer's `index_record` lines for the records, and `curl -s http://127.0.0.1:8081/healthz` reports `index_stale: 0`.
+11. Register a second server entry as carol (reader) or use curl with `-u carol:froodbase-dev`: `get_record` and `search` work, `contribute` is refused with "contributor role required" and the refusal is in `audit_event`.
 
-`TestSlice1Exit` and `TestPlainContribution` in `internal/apitest` run the same calls through the client `froodbase-mcp` uses (`make test-integration`); `TestPlainContribution` sends only the fields a plain request gives.
+`TestSlice1Exit`, `TestPlainContribution` and `TestEvidenceForExistingClaim` in `internal/apitest` run the same calls through the client `froodbase-mcp` uses (`make test-integration`); `TestPlainContribution` sends only the fields a plain request gives, and `TestEvidenceForExistingClaim` is step 6.
 
 ## Contributing knowledge and reading it back
 
@@ -151,7 +152,7 @@ Three tools arrive with slice 1, available in Claude through `froodbase-mcp` and
 
 | Tool | What it does |
 |---|---|
-| `contribute` | Writes one atomic change set to a knowledge area: entities, assertions about them (observations, decisions and inferences) and the shareable evidence behind them. A decision or inference may name the assertions it was derived from. Every record is active at once with the support its distinct evidence roots give it; there is no approval step. Needs the contributor role in the area; a refusal is audited. |
+| `contribute` | Writes one atomic change set to a knowledge area: entities, assertions about them (observations, decisions and inferences) and the shareable evidence behind them. A decision or inference may name the assertions it was derived from. `links` adds evidence to claims already recorded. Every record is active at once with the support its distinct evidence roots give it; there is no approval step. Needs the contributor role in the area; a refusal is audited. |
 | `get_record` | Reads one record of any type by id with its kind, lifecycle state, support (score, configuration version, counts of roots, verifications and outcomes, threshold verdict), scope, validity, verification date and citations; a deduction also carries `derived: true` and the ids it was `derived_from`. |
 | `get_history` | Reads a record's content revisions (actor, time, rationale, snapshot) and, for a claim, its support events and the assertions it was derived from (`derivations`). |
 | `search` | Finds records in the areas you can read by an entity name, exact or near-miss (a near-miss is returned as a candidate with its similarity for you to confirm; it is never resolved for you), or by words in assertion bodies (PostgreSQL full text, websearch syntax). Identifier hits come first. Nothing is said about records outside your areas, not even a count. Optional `area` limits the search to one area key; `limit` defaults to 10, at most 50. Reading evidence with the restricted access class, through search or get_record, writes a `restricted_read` audit event. |
@@ -191,6 +192,23 @@ curl -s -u bob:froodbase-dev -H 'Content-Type: application/json' -H 'Accept: app
 ```
 
 The same flow runs as `TestDeductionFromTwoObservations` in `internal/apitest`.
+
+### Adding evidence to something already recorded
+
+Corroboration found later goes to the claim already recorded, not into a second copy of it: recording the same claim again earns nothing. `links` lists claims the area already holds by id, each with the evidence it should now cite: refs of evidence in the same call or ids of evidence in the area. The claim gains one `root_added` event per distinct root it did not count yet, its score is re-projected and an `evidence_linked` audit event names the contribution. Its content and revision do not change. Deductions derived from it then gain the root through the dreamer's `reconsider_derived` job, as above. Evidence the claim already counts (the same evidence, a restatement of a root it cites, a root it inherits, another statement from the same person) adds nothing. Links are written before the call's new assertions, so a deduction in the same call that is derived from a linked claim inherits the new roots at once.
+
+A link to an unknown id, to something that is not an assertion, or to a claim or evidence in another area is refused, as is a link naming a ref from the same call (a new claim cites its evidence in its own `evidence` list), and nothing is written. The result lists the new evidence under `records` as usual and each linked claim under `linked` with its kind, its unchanged `revision`, the `evidence` ids linked, `roots_added` and its `support` after the link. A retry with the same idempotency key replays it.
+
+```bash
+curl -s -u bob:froodbase-dev -H 'Content-Type: application/json' -H 'Accept: application/json, text/event-stream' \
+  -d '{"jsonrpc":"2.0","id":4,"method":"tools/call","params":{"name":"contribute","arguments":{
+    "area":"demo","idempotency_key":"demo-4","rationale":"the same failure in another work item",
+    "evidence":[{"ref":"wi","source_uri":"https://dev.azure.com/org/p/_workitems/edit/419","source_revision":"3"}],
+    "links":[{"claim":"<observation id>","evidence":["wi"]}]}}}' \
+  http://127.0.0.1:8080/mcp
+```
+
+The same flow, with the dreamer strengthening an inference derived from the observation, a replay and the refusals, runs as `TestEvidenceForExistingClaim` in `internal/apitest`.
 
 ### Facts from commands and from people
 

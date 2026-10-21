@@ -147,6 +147,7 @@ func TestContributeSchemaRequiresOnlyWhatCannotBeInferred(t *testing.T) {
 		{"evidence", nil},
 		{"assertions", []string{"body_markdown", "kind", "subject"}},
 		{"observations", []string{"body_markdown", "subject"}},
+		{"links", []string{"claim", "evidence"}},
 	} {
 		s := &root
 		if c.where != "" {

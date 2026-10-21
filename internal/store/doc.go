@@ -7,7 +7,8 @@
 // row-level security: every write and read runs in a transaction with the
 // caller's areas set in the app.caller_areas session variable, as the
 // non-owning service role the policies apply to. The writer (Contribute,
-// UpdateEntity, UpdateAssertion, LinkEvidence) writes records, revision
+// with links that add evidence to existing claims; UpdateEntity,
+// UpdateAssertion, LinkEvidence) writes records, revision
 // snapshots, audit events, support events (one root_added per distinct root,
 // cited or inherited from a deduction's sources, carrying the root's source
 // kind; one person's statements are one root per claim), the index_record job

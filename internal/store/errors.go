@@ -25,6 +25,9 @@ var (
 	// ErrCrossArea means a record links a record in another area, for
 	// example a deduction derived from an assertion outside its own area.
 	ErrCrossArea = errors.New("store: a record may only link records in its own area")
+	// ErrInvalidLink means a contribution's evidence link cites no evidence,
+	// names a claim twice or names a claim the same contribution writes.
+	ErrInvalidLink = errors.New("store: an evidence link must name an existing claim once and cite evidence")
 	// ErrNoCaller means the caller has no user id.
 	ErrNoCaller = errors.New("store: caller has no user id")
 )

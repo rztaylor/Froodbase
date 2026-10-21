@@ -1,6 +1,6 @@
 ---
 name: froodbase-contribute
-description: Use when recording knowledge in Froodbase through its contribute tool. That covers a person saying in plain words what they learned, found, concluded or decided ("remember that...", "record this", "note in Froodbase that..."), and an investigation turning up a finding that others could check. Teaches how to turn the finding into a contribute change set without asking the person for fields. Search first, cite existing records, pick the evidence kind and the assertion kind, record deductions with their sources and commands as command evidence, keep secrets out, and report the ids written.
+description: Use when recording knowledge in Froodbase through its contribute tool. That covers a person saying in plain words what they learned, found, concluded or decided ("remember that...", "record this", "note in Froodbase that..."), and an investigation turning up a finding that others could check. Teaches how to turn the finding into a contribute change set without asking the person for fields. Search first, cite existing records, pick the evidence kind and the assertion kind, record deductions with their sources and commands as command evidence, add new sources to claims already recorded instead of recording them again, keep secrets out, and report the ids written.
 ---
 
 # Recording findings in Froodbase
@@ -21,7 +21,7 @@ Tools (MCP server `froodbase`): `whoami`, `search`, `get_record`, `get_history`,
 2. **Search first.** `search` the names of the systems involved, and a few words of the finding.
    - An exact name match: use its id as the `subject`. Do not create the entity again.
    - A near-miss candidate: read it with `get_record`. If it is plainly the same thing, use it. If it is ambiguous, ask the person one question that names both.
-   - The same finding already recorded: do not record it again, because repetition earns nothing. Tell the person it exists, with its id.
+   - The same finding already recorded: do not record it again, because repetition earns nothing. If you have a source it does not cite yet, add that source to the recorded claim instead (see Adding evidence to something already recorded). If not, tell the person it exists, with its id.
    - The evidence you would cite already recorded (same source, revision and locator in a result's citations): cite its `evidence_id`. Do not record it again.
 3. **Split into claims.** Each assertion holds one finding. Choose its `kind`, which never changes:
    - `observation`: what was seen in a source, a command's output or the person's experience. It cites evidence and is never derived.
@@ -60,6 +60,26 @@ When the person states something from their own experience and asks you to recor
 
 When you conclude something from records you read, or from what you just recorded, record it as an `inference` with `derived_from` naming those assertions. They can be refs in the same call (in any order) or existing ids. Add evidence of its own when you have it, for example the code that explains the cause. A deduction starts with the distinct evidence roots of its sources, stays labelled as an inference, and is often below its threshold at first. That is expected: do not add weak evidence just to lift it. Later evidence on its sources strengthens it automatically. Never record a conclusion as an observation, and never name `derived_from` on an observation. Deriving from another area, from an unknown id or in a loop is refused.
 
+## Adding evidence to something already recorded
+
+When a claim is already recorded and you have found a source it does not cite yet (another ticket, a second command run, a log, the code that shows it), add the source to that claim. Do not record the claim again. Use the claim's `id` from `search` or `get_record`, and list it under `links`, with the evidence as a ref in the same call or an existing `evidence_id`:
+
+```json
+{
+  "area": "demo",
+  "idempotency_key": "bob-inc-31-gateway-logs",
+  "rationale": "gateway logs agree",
+  "evidence": [{"ref": "logs", "source_uri": "https://github.com/org/edge/blob/0123456789abcdef0123456789abcdef01234567/capacity.md", "locator": "L10-L24"}],
+  "links": [{"claim": "<the observation's id>", "evidence": ["logs"]}]
+}
+```
+
+- The claim gains one root for each independent source it did not count yet. Its text and revision do not change, and deductions derived from it gain the root shortly afterwards.
+- Evidence the claim already counts adds nothing: the same evidence again, a restatement of a source it cites (`root`), a source it already inherits, or another statement from the same person. The result then says `roots_added: 0`. Tell the person it was already counted rather than looking for ways to add more.
+- `claim` is an id, of a claim in the area you contribute to. A claim in the same call takes its evidence in its own `evidence` list, not under `links`.
+- You can add links in the same call as new records. A deduction in that call derived from a linked claim inherits the new roots at once.
+- If what you found changes the claim (narrower scope, a different version, a correction), it is a new claim, not more evidence for the old one.
+
 ## What the server fills in
 
 Leave these out. The server infers them, and spelling them out changes nothing:
@@ -70,7 +90,7 @@ Leave these out. The server infers them, and spelling them out changes nothing:
 - `source_revision` for a repository URL with a full commit SHA, for commands and for statements.
 - A statement's `source_uri`.
 
-Still required: `area`, `idempotency_key`, each entity's `type` (system, service, component, team, environment or incident) and `names`, each assertion's `kind`, `subject` and `body_markdown`, evidence for every observation, and the revision of any https source other than a pinned commit.
+Still required: `area`, `idempotency_key`, each entity's `type` (system, service, component, team, environment or incident) and `names`, each assertion's `kind`, `subject` and `body_markdown`, evidence for every observation, each link's `claim` and `evidence`, and the revision of any https source other than a pinned commit.
 
 ## Refusals
 
@@ -83,6 +103,9 @@ A refusal writes nothing and says what to fix. Fix the call and send it again.
 | `looks like it holds a secret` | Replace the value with `***` and send it again. |
 | `already holds evidence for that source` | Find its id (`search` results carry `evidence_id` in their citations) and cite that id instead. |
 | `cites no evidence` | Find a source, or record it as a deduction derived from what it rests on. If nothing is checkable, see When to ask. |
+| `which is a ref in this call` | Cite the evidence in that new assertion's `evidence` list. `links` is only for claims already recorded. |
+| `not the id of an assertion` or `a referenced record was not found` | `search` for the recorded claim and use its `id`. |
+| `in another knowledge area` | Add evidence only to claims in the area you contribute to. Record the finding in that area's own terms instead. |
 | `contributor role required` | Tell the person they cannot contribute to that area. Do not retry. |
 | `froodbase_unavailable: true` | Carry on without Froodbase. Tell the person the findings were not recorded. |
 
@@ -92,7 +115,7 @@ Ask the person only when a claim has nothing checkable behind it. That means no 
 
 ## Reporting
 
-After `contribute`, tell the person what was written. For each record, give its kind, a few words of what it says, its id, and for a claim its support (`roots`, `meets_threshold`). Name anything you did not record and why. If you are writing a report, list the ids in it rather than sending the report to Froodbase.
+After `contribute`, tell the person what was written. For each record, give its kind, a few words of what it says, its id, and for a claim its support (`roots`, `meets_threshold`). For each claim under `linked`, give its id, `roots_added` and its support now. Name anything you did not record and why. If you are writing a report, list the ids in it rather than sending the report to Froodbase.
 
 ## Example
 
