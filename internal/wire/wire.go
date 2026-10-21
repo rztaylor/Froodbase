@@ -107,9 +107,26 @@ type ObservationInput struct {
 	Evidence     []string   `json:"evidence,omitempty"`
 }
 
+// LinkInput cites further evidence for a claim already recorded (FRB-57):
+// Claim is the id of an assertion in the area, of any kind, and Evidence
+// the refs of evidence in this call or ids of evidence in the area. The
+// claim gains one root per distinct root it has not counted yet; evidence
+// it already counts, directly, through a restatement or (for a statement)
+// from the same person, adds nothing. Nothing else about the claim changes:
+// no new revision, and records derived from it gain the root through the
+// dreamer. Use it instead of recording the same claim again, which earns
+// nothing.
+type LinkInput struct {
+	Claim    string   `json:"claim"`
+	Evidence []string `json:"evidence"`
+}
+
 // ContributeInput is one atomic change set for one knowledge area (TR-60).
 // Assertions is the general form; Observations is kept for existing callers
 // and is written as assertions of kind observation, before Assertions.
+// Links adds evidence to claims the area already holds; they are written
+// before the new assertions, so a deduction in the same call derived from a
+// linked claim inherits its new roots at once.
 type ContributeInput struct {
 	Area             string             `json:"area"`
 	IdempotencyKey   string             `json:"idempotency_key"`
@@ -119,6 +136,7 @@ type ContributeInput struct {
 	Evidence         []EvidenceInput    `json:"evidence,omitempty"`
 	Assertions       []AssertionInput   `json:"assertions,omitempty"`
 	Observations     []ObservationInput `json:"observations,omitempty"`
+	Links            []LinkInput        `json:"links,omitempty"`
 }
 
 // Support is a claim's earned support (PR-15, TR-14): the score, the
@@ -156,13 +174,27 @@ type Written struct {
 	Support        *Support `json:"support,omitempty"`
 }
 
-// ContributeOutput is the result of contribute.
+// Linked is an existing claim a contribution cited further evidence for:
+// its kind, its revision (unchanged by the link), the evidence ids linked,
+// how many roots that added and its support after the link.
+type Linked struct {
+	ID         string   `json:"id"`
+	Kind       string   `json:"kind"`
+	Revision   int      `json:"revision"`
+	Evidence   []string `json:"evidence"`
+	RootsAdded int      `json:"roots_added"`
+	Support    *Support `json:"support,omitempty"`
+}
+
+// ContributeOutput is the result of contribute. Records lists what the call
+// wrote, Linked the existing claims it added evidence to.
 type ContributeOutput struct {
 	ContributionID string    `json:"contribution_id"`
 	Area           string    `json:"area"`
 	ConfigVersion  string    `json:"config_version"`
 	Replayed       bool      `json:"replayed"`
 	Records        []Written `json:"records"`
+	Linked         []Linked  `json:"linked,omitempty"`
 }
 
 // GetRecordInput asks for one record by id.

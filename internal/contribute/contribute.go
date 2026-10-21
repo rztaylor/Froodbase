@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 	"time"
 
@@ -175,6 +176,7 @@ func (s *Service) build(ctx context.Context, caller store.Caller, ac *authz.Cont
 		ids[ev.Ref] = id
 		refs[id] = ev.Ref
 	}
+	c.Links = linksOf(in.Links, ids)
 	claims := assertionsOf(in)
 	for _, a := range claims {
 		ids[a.Ref] = domain.ID(s.newID()) // assigned up front: derived_from may name a later ref
@@ -241,18 +243,61 @@ func (s *Service) output(ctx context.Context, caller store.Caller, areaID domain
 				kind = domain.KindObservation // results stored before kinds were recorded held observations only
 			}
 			rec.Kind = string(kind)
-			score := res.Scores[w.ID]
-			rec.Support = &wire.Support{
-				Score: score, ConfigVersion: res.ConfigVersion, Roots: res.Roots[w.ID], Events: res.Roots[w.ID],
-				RootsBySourceKind: RootWeightsToWire(domain.SummariseRoots(res.RootKinds[w.ID], cfg)), MeetsThreshold: cfg.MeetsThreshold(kind, score),
-			}
+			rec.Support = supportOf(res, w.ID, kind, cfg)
 		}
 		if w.RecordType == store.RecordEvidence {
 			rec.LifecycleState = ""
 		}
 		out.Records = append(out.Records, rec)
 	}
+	for _, l := range res.Linked {
+		evidence := make([]string, len(l.EvidenceIDs))
+		for i, id := range l.EvidenceIDs {
+			evidence[i] = string(id)
+		}
+		out.Linked = append(out.Linked, wire.Linked{
+			ID: string(l.ID), Kind: l.Kind, Revision: l.Revision, Evidence: evidence, RootsAdded: len(l.RootsAdded),
+			Support: supportOf(res, l.ID, domain.EpistemicKind(l.Kind), cfg),
+		})
+	}
 	return out, nil
+}
+
+// supportOf is a claim's support as the result reports it. Every event a
+// contribution writes is a root_added, so the events are the roots.
+func supportOf(res *store.ContributionResult, id domain.ID, kind domain.EpistemicKind, cfg domain.SupportConfig) *wire.Support {
+	score := res.Scores[id]
+	return &wire.Support{
+		Score: score, ConfigVersion: res.ConfigVersion, Roots: res.Roots[id], Events: res.Roots[id],
+		RootsBySourceKind: RootWeightsToWire(domain.SummariseRoots(res.RootKinds[id], cfg)), MeetsThreshold: cfg.MeetsThreshold(kind, score),
+	}
+}
+
+// linksOf translates evidence for existing claims into the store's links:
+// one per claim, in the order first named, evidence refs from this call
+// resolved to their new ids and each evidence id once.
+func linksOf(in []wire.LinkInput, ids map[string]domain.ID) []store.EvidenceLink {
+	var out []store.EvidenceLink
+	at := map[domain.ID]int{}
+	for _, l := range in {
+		claim := domain.ID(strings.TrimSpace(l.Claim))
+		i, ok := at[claim]
+		if !ok {
+			i = len(out)
+			at[claim] = i
+			out = append(out, store.EvidenceLink{ClaimID: claim})
+		}
+		for _, ref := range l.Evidence {
+			id, ok := ids[ref]
+			if !ok {
+				id = domain.ID(strings.TrimSpace(ref)) // existing evidence in the area; the store resolves it
+			}
+			if !slices.Contains(out[i].EvidenceIDs, id) {
+				out[i].EvidenceIDs = append(out[i].EvidenceIDs, id)
+			}
+		}
+	}
+	return out
 }
 
 // RootWeightsToWire is the wire form of a claim's roots by source kind.
@@ -275,7 +320,7 @@ func validateInput(in wire.ContributeInput) error {
 		return fmt.Errorf("%w: idempotency_key is required", ErrInvalidInput)
 	}
 	claims := assertionsOf(in)
-	if len(in.Entities)+len(in.Evidence)+len(claims) == 0 {
+	if len(in.Entities)+len(in.Evidence)+len(claims)+len(in.Links) == 0 {
 		return fmt.Errorf("%w: nothing to contribute", ErrInvalidInput)
 	}
 	seen := map[string]bool{}
@@ -297,10 +342,12 @@ func validateInput(in wire.ContributeInput) error {
 			return fmt.Errorf("%w: entity %q has no names", ErrInvalidInput, e.Ref)
 		}
 	}
+	evidenceRefs := map[string]bool{}
 	for _, ev := range in.Evidence {
 		if err := ref("evidence", ev.Ref); err != nil {
 			return err
 		}
+		evidenceRefs[ev.Ref] = true
 	}
 	otherRefs := make(map[string]bool, len(seen))
 	for r := range seen {
@@ -345,6 +392,36 @@ func validateInput(in wire.ContributeInput) error {
 	}
 	if _, err := domain.OrderByDerivation(ids, links); err != nil {
 		return fmt.Errorf("%w: derived_from refs loop (%v); a record cannot be derived, directly or through others, from itself", ErrInvalidInput, err)
+	}
+	return validateLinks(in.Links, seen, evidenceRefs)
+}
+
+// validateLinks checks evidence for existing claims: each names an
+// assertion id (not a ref in this call, whose evidence belongs in its own
+// list) and cites evidence refs from this call or evidence ids.
+func validateLinks(links []wire.LinkInput, refs, evidenceRefs map[string]bool) error {
+	for i, l := range links {
+		claim := strings.TrimSpace(l.Claim)
+		switch {
+		case claim == "":
+			return fmt.Errorf("%w: link %d names no claim; claim is the id of the recorded assertion to add evidence to", ErrInvalidInput, i+1)
+		case refs[claim]:
+			return fmt.Errorf("%w: link %d names claim %q, which is a ref in this call; links add evidence to claims already recorded, so cite the evidence in that assertion's own evidence list instead", ErrInvalidInput, i+1, claim)
+		}
+		if _, err := uuid.Parse(claim); err != nil {
+			return fmt.Errorf("%w: link %d names claim %q, which is not the id of an assertion; search for the recorded claim and use its id", ErrInvalidInput, i+1, claim)
+		}
+		if len(l.Evidence) == 0 {
+			return fmt.Errorf("%w: link %d to claim %s cites no evidence", ErrInvalidInput, i+1, claim)
+		}
+		for _, ev := range l.Evidence {
+			if evidenceRefs[ev] {
+				continue
+			}
+			if _, err := uuid.Parse(strings.TrimSpace(ev)); refs[ev] || err != nil {
+				return fmt.Errorf("%w: link %d to claim %s cites %q, which is neither the ref of evidence in this call nor an evidence id", ErrInvalidInput, i+1, claim, ev)
+			}
+		}
 	}
 	return nil
 }
@@ -406,7 +483,9 @@ func mapStoreErr(err error) error {
 	case errors.Is(err, store.ErrDuplicateEvidence):
 		return fmt.Errorf("%w: the area already holds evidence for that source, revision and locator; cite its id instead of recording it again", ErrInvalidInput)
 	case errors.Is(err, store.ErrCrossArea):
-		return fmt.Errorf("%w: derived_from names an assertion in another knowledge area; derive only from assertions in the area you contribute to (%v)", ErrInvalidInput, err)
+		return fmt.Errorf("%w: the call names a record in another knowledge area; derive from, cite and add evidence to records in the area you contribute to only (%v)", ErrInvalidInput, err)
+	case errors.Is(err, store.ErrInvalidLink):
+		return fmt.Errorf("%w: %v", ErrInvalidInput, err)
 	case errors.Is(err, domain.ErrDerivationCycle):
 		return fmt.Errorf("%w: %v", ErrInvalidInput, err)
 	case errors.Is(err, store.ErrNotFound):

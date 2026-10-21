@@ -1,11 +1,17 @@
 package contribute
 
 import (
+	"context"
 	"errors"
+	"fmt"
+	"reflect"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/rztaylor/froodbase/internal/authz"
+	"github.com/rztaylor/froodbase/internal/domain"
+	"github.com/rztaylor/froodbase/internal/store"
 	"github.com/rztaylor/froodbase/internal/wire"
 )
 
@@ -180,5 +186,108 @@ func TestAttributeStatements(t *testing.T) {
 	in = good()
 	if err := attributeStatements(&in, &authz.Context{AgentID: "triage-agent"}); err != nil {
 		t.Errorf("no statements, no person needed: %v", err)
+	}
+}
+
+const (
+	claimA = "6f1c9a52-3b0e-4f4e-9d61-2a7c5e8b1d40"
+	claimB = "0b8e3c11-6a2d-4c5f-8e9a-1d2c3b4a5f60"
+	evOld  = "9a7b6c5d-4e3f-4a1b-8c2d-3e4f5a6b7c8d"
+)
+
+// withLinks is new evidence for a claim already recorded, and an existing
+// evidence id for another, with nothing else in the call.
+func withLinks() wire.ContributeInput {
+	return wire.ContributeInput{
+		Area: "demo", IdempotencyKey: "k2",
+		Evidence: []wire.EvidenceInput{{Ref: "ev1", SourceKind: "ticket", SourceURI: "https://dev.azure.com/org/p/_workitems/edit/2", SourceRevision: "3", AccessClass: "area"}},
+		Links:    []wire.LinkInput{{Claim: claimA, Evidence: []string{"ev1"}}, {Claim: claimB, Evidence: []string{evOld}}},
+	}
+}
+
+// Evidence for an existing claim names the claim by id and cites evidence
+// refs from the call or ids from the area; anything else is refused before
+// anything is written.
+func TestValidateLinks(t *testing.T) {
+	if err := validateInput(withLinks()); err != nil {
+		t.Fatalf("links rejected: %v", err)
+	}
+	ok := map[string]func(*wire.ContributeInput){
+		"links only, existing evidence": func(in *wire.ContributeInput) { in.Evidence, in.Links = nil, in.Links[1:] },
+		"with a new claim too": func(in *wire.ContributeInput) {
+			g := good()
+			in.Entities, in.Observations = g.Entities, g.Observations
+			in.Evidence = append(in.Evidence, wire.EvidenceInput{Ref: "ev0", SourceKind: "ticket", SourceURI: "https://dev.azure.com/org/p/_workitems/edit/1", SourceRevision: "1"})
+			in.Observations[0].Evidence = []string{"ev0"}
+		},
+		"same claim twice": func(in *wire.ContributeInput) { in.Links[1].Claim = claimA },
+	}
+	for name, mutate := range ok {
+		in := withLinks()
+		mutate(&in)
+		if err := validateInput(in); err != nil {
+			t.Errorf("%s: rejected: %v", name, err)
+		}
+	}
+	bad := map[string]struct {
+		mutate func(*wire.ContributeInput)
+		says   string
+	}{
+		"no claim":    {func(in *wire.ContributeInput) { in.Links[0].Claim = " " }, "names no claim"},
+		"no evidence": {func(in *wire.ContributeInput) { in.Links[0].Evidence = nil }, "cites no evidence"},
+		"claim is a ref in this call": {func(in *wire.ContributeInput) {
+			g := good()
+			in.Entities, in.Observations = g.Entities, g.Observations
+			in.Observations[0].Evidence = []string{"ev1"}
+			in.Links[0].Claim = "o1"
+		}, "cite the evidence in that assertion"},
+		"claim is evidence ref": {func(in *wire.ContributeInput) { in.Links[0].Claim = "ev1" }, "is a ref in this call"},
+		"claim not an id":       {func(in *wire.ContributeInput) { in.Links[0].Claim = "callback-retry" }, "not the id of an assertion"},
+		"evidence typo":         {func(in *wire.ContributeInput) { in.Links[0].Evidence = []string{"ev2"} }, "neither the ref of evidence in this call nor an evidence id"},
+		"evidence is an entity": {func(in *wire.ContributeInput) {
+			in.Entities = good().Entities
+			in.Links[0].Evidence = []string{"e1"}
+		}, "neither the ref of evidence in this call nor an evidence id"},
+	}
+	for name, tt := range bad {
+		in := withLinks()
+		tt.mutate(&in)
+		err := validateInput(in)
+		if !errors.Is(err, ErrInvalidInput) || !strings.Contains(err.Error(), tt.says) {
+			t.Errorf("%s: err = %v, want ErrInvalidInput saying %q", name, err, tt.says)
+		}
+	}
+}
+
+// Links translate into the store's links by claim id, refs resolved to the
+// new evidence's ids, in the order given, one link per claim with each
+// evidence id once.
+func TestBuildLinks(t *testing.T) {
+	n := 0
+	s := &Service{now: func() time.Time { return time.Date(2026, 10, 21, 9, 0, 0, 0, time.UTC) }, newID: func() string {
+		n++
+		return fmt.Sprintf("00000000-0000-0000-0000-%012d", n)
+	}}
+	in := withLinks()
+	in.Links = append(in.Links, wire.LinkInput{Claim: claimA, Evidence: []string{evOld, "ev1"}})
+	c, _, err := s.build(context.Background(), store.Caller{}, &authz.Context{UserID: "bob"}, "a0000000-0000-0000-0000-000000000000", in)
+	if err != nil {
+		t.Fatal(err)
+	}
+	newEv := c.Evidence[0].ID
+	want := []store.EvidenceLink{
+		{ClaimID: claimA, EvidenceIDs: []domain.ID{newEv, evOld}},
+		{ClaimID: claimB, EvidenceIDs: []domain.ID{evOld}},
+	}
+	if !reflect.DeepEqual(c.Links, want) {
+		t.Errorf("links = %+v, want %+v", c.Links, want)
+	}
+}
+
+func TestRequestHashCoversLinks(t *testing.T) {
+	a, b := withLinks(), withLinks()
+	b.Links[0].Evidence = []string{evOld}
+	if requestHash(a) == requestHash(b) {
+		t.Fatal("hash ignores the links")
 	}
 }

@@ -16,8 +16,8 @@ import (
 // reconsideration (FRB-52) as a reader sees it through internal/client: an
 // observation, an inference derived from it and a decision derived from the
 // inference, each with one root and the inference below its threshold. A
-// new independent root linked to the observation (through the store: no
-// tool adds evidence to an existing claim yet) reaches the inference and
+// new independent root linked to the observation (through the store here;
+// TestEvidenceForExistingClaim does it through contribute) reaches the inference and
 // the decision through the dreamer; get_record shows two roots and the
 // inference now meets its threshold, and get_history shows the root_added
 // appended by the job, inherited from the direct source, with no new
