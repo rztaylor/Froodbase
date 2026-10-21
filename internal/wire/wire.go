@@ -28,9 +28,11 @@ type Name struct {
 }
 
 // EntityInput is an entity to create. Ref is a name local to the call that
-// assertions and the result use to refer to it.
+// assertions and the result use to refer to it; when left out the server
+// generates one (entity-1, entity-2, ...), so leave it out only when nothing
+// in the call refers to the entity.
 type EntityInput struct {
-	Ref   string `json:"ref"`
+	Ref   string `json:"ref,omitempty"`
 	Type  string `json:"type"`
 	Names []Name `json:"names"`
 }
@@ -50,14 +52,23 @@ type EntityInput struct {
 // they said as excerpt and when as observed_at. Both default
 // source_revision to observed_at. Anything that looks like a secret is
 // refused.
+//
+// The server fills in what it can tell from the rest (FRB-51): Ref as for
+// entities (evidence-1, ...); SourceKind from a well-known SourceURI (work
+// items, Jira and GitHub issues are ticket; GitHub, GitLab, Bitbucket and
+// Azure DevOps repository URLs are repository; Confluence, SharePoint and
+// Azure DevOps wiki pages are document; the command schemes are command and
+// person:// is statement); AccessClass as area; and SourceRevision, for a
+// repository URL that pins a full commit SHA, as that SHA. Anything else
+// stays required.
 type EvidenceInput struct {
-	Ref            string     `json:"ref"`
-	SourceKind     string     `json:"source_kind"`
-	SourceURI      string     `json:"source_uri"`
-	SourceRevision string     `json:"source_revision"`
+	Ref            string     `json:"ref,omitempty"`
+	SourceKind     string     `json:"source_kind,omitempty"`
+	SourceURI      string     `json:"source_uri,omitempty"`
+	SourceRevision string     `json:"source_revision,omitempty"`
 	Locator        string     `json:"locator,omitempty"`
 	Excerpt        string     `json:"excerpt,omitempty"`
-	AccessClass    string     `json:"access_class"`
+	AccessClass    string     `json:"access_class,omitempty"`
 	Root           string     `json:"root,omitempty"`
 	ObservedAt     *time.Time `json:"observed_at,omitempty"`
 }
@@ -71,9 +82,9 @@ type EvidenceInput struct {
 // assertions in the area (PR-13). An observation cites evidence and is never
 // derived; a decision or inference cites evidence, is derived, or both.
 // Validity dates are only set when the contributor knows them; they are
-// never inferred (TR-32).
+// never inferred (TR-32). Ref, when left out, is generated (assertion-1, ...).
 type AssertionInput struct {
-	Ref          string     `json:"ref"`
+	Ref          string     `json:"ref,omitempty"`
 	Kind         string     `json:"kind"`
 	Subject      string     `json:"subject"`
 	BodyMarkdown string     `json:"body_markdown"`
@@ -87,13 +98,13 @@ type AssertionInput struct {
 // ObservationInput is the slice 1 form of an observation, kept so existing
 // callers keep working: it is an AssertionInput of kind observation.
 type ObservationInput struct {
-	Ref          string     `json:"ref"`
+	Ref          string     `json:"ref,omitempty"`
 	Subject      string     `json:"subject"`
 	BodyMarkdown string     `json:"body_markdown"`
 	Scope        *Scope     `json:"scope,omitempty"`
 	ValidFrom    *time.Time `json:"valid_from,omitempty"`
 	ValidTo      *time.Time `json:"valid_to,omitempty"`
-	Evidence     []string   `json:"evidence"`
+	Evidence     []string   `json:"evidence,omitempty"`
 }
 
 // ContributeInput is one atomic change set for one knowledge area (TR-60).

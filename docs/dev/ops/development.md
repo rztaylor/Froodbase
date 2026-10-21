@@ -125,22 +125,25 @@ Without Claude Code you can drive the binary over stdin; the stream must stay op
 
 ## Five-minute walkthrough in Claude
 
+You speak plainly; Claude structures the calls. The repository skill `.claude/skills/froodbase-contribute/SKILL.md` teaches Claude how: it searches before creating, picks the evidence and assertion kinds, records deductions with their sources and commands as command evidence, mints the idempotency key, leaves out what the server infers, and reports the ids it wrote. It asks you something only when a claim has nothing checkable behind it.
+
 1. Start the stack and build the binaries:
 
    ```bash
    make up && make build
    ```
 
-2. Register `froodbase-mcp` in Claude Code once (see "Using Froodbase from Claude Code" below for the command; use bob, the contributor, as the user) and open a new Claude Code session in this folder. `/mcp` lists `froodbase` with whoami, contribute, search, get_record and get_history.
-3. Ask Claude: "Call whoami on froodbase." It answers with bob and his contributor grant in `demo`.
-4. Ask Claude: "Contribute to the demo area: a service called Import Tool, and the observation that the callback failure was reproduced on version 2.3 in prod, citing ticket https://dev.azure.com/org/p/_workitems/edit/418 at revision 2026-10-20 with access class area. Use a fresh idempotency key." Claude calls `contribute`; the result lists the entity, the evidence and the observation with their ids, `lifecycle_state: active` and the observation's support (score 1, one root, threshold met).
-5. Ask Claude: "Search froodbase for Improt Tool." The entity comes back from the identifier channel as a candidate with its similarity; ask for "callback" and the observation comes back from the full-text channel with its citation.
-6. Ask Claude: "Show the history of that observation." `get_history` lists the one revision (bob, the rationale) and the `root_added` support event.
-7. Ask Claude to call `contribute` again with the same idempotency key: `replayed: true` and the same ids, nothing written twice.
-8. Meanwhile `make logs` shows the dreamer's `index_record` lines for the records, and `curl -s http://127.0.0.1:8081/healthz` reports `index_stale: 0`.
-9. Register a second server entry as carol (reader) or use curl with `-u carol:froodbase-dev`: `get_record` and `search` work, `contribute` is refused with "contributor role required" and the refusal is in `audit_event`.
+2. Register `froodbase-mcp` in Claude Code once (see "Using Froodbase from Claude Code" above for the command; use bob, the contributor, as the user) and open a new Claude Code session in this folder. `/mcp` lists `froodbase` with whoami, contribute, search, get_record and get_history, and the skill loads from the checkout.
+3. Say: "What does Froodbase know about me?" Claude calls `whoami`: bob, with the contributor role in `demo`.
+4. Say: "Remember this for the import tool: callbacks on 2.3 fail because the new retry waits out the full 30 second timeout. It's in work item https://dev.azure.com/org/p/_workitems/edit/418, revision 12." Claude searches for the import tool, finds nothing, and contributes an entity, the work item as evidence and the observation, without asking for a kind, access class, ref or key. It reports each record's id and the observation's support (one root, threshold met).
+5. Say: "So the retry change is the cause, that's my conclusion." Claude records an inference derived from the observation and reports it as an inference below its threshold: one root, inherited from the work item.
+6. Say: "I also know we raised the timeout to 30 seconds in September." That is your own knowledge, so Claude records an observation citing your statement (`person://bob`), which weighs less than an observed source.
+7. Say: "Search Froodbase for Improt Tool." The entity comes back from the identifier channel as a candidate with its similarity; "callback" finds the observations from the full-text channel with their citations. Ask "show the history of the inference": `get_history` lists its revision, its `root_added` event and the observation it was derived from.
+8. Say the finding from step 4 again: Claude finds it by search and tells you it is already recorded instead of writing a duplicate. Ask it to retry its first call with the same idempotency key: `replayed: true` and the same ids, nothing written twice.
+9. Meanwhile `make logs` shows the dreamer's `index_record` lines for the records, and `curl -s http://127.0.0.1:8081/healthz` reports `index_stale: 0`.
+10. Register a second server entry as carol (reader) or use curl with `-u carol:froodbase-dev`: `get_record` and `search` work, `contribute` is refused with "contributor role required" and the refusal is in `audit_event`.
 
-The same scenario runs as `TestSlice1Exit` in `internal/apitest` through the client `froodbase-mcp` uses (`make test-integration`).
+`TestSlice1Exit` and `TestPlainContribution` in `internal/apitest` run the same calls through the client `froodbase-mcp` uses (`make test-integration`); `TestPlainContribution` sends only the fields a plain request gives.
 
 ## Contributing knowledge and reading it back
 
@@ -155,6 +158,8 @@ Three tools arrive with slice 1, available in Claude through `froodbase-mcp` and
 
 Knowledge areas are created at API start-up for every area key the users file grants (the sample file grants `demo`), so the local stack needs no admin step; the cloud move adds an admin tool. Reports, conversations and transcripts are never sent: an agent contributes individual findings, each citing a source the area's audience can check (an https source at a revision, a command it ran, or the caller's own statement), and lists the returned ids in its report.
 
+The server fills in what it can tell from the rest of the call, so neither you nor Claude needs to spell it out: a `ref` for any record nothing refers to (`entity-1`, `evidence-2`, `assertion-1`, `observation-1`, by position in its list); the `source_kind` of well-known links (Azure DevOps work items, Jira issues at `/browse/KEY-1` and GitHub issues are `ticket`; GitHub, GitLab and Bitbucket blob, tree and commit URLs and Azure DevOps `_git` URLs are `repository`; Confluence, SharePoint and Azure DevOps wiki pages are `document`; the `azure`, `k8s`, `sql` and `host` schemes are `command` and `person://` is `statement`); `access_class` as `area`; and the `source_revision` of a repository URL that pins a full commit SHA (in the path, or Azure DevOps `version=GC<sha>`). Anything else stays required and is refused with a message saying what to pass: a link it does not recognise needs its `source_kind`, and an https source that does not pin a commit needs its `source_revision`. A call that spells out what would be inferred is the same request.
+
 Every `contribute` call carries an `idempotency_key`. Retrying with the same key and the same content returns the stored result (`replayed: true`) and writes nothing; the same key with different content is refused. Keys are per person. An observation must cite at least one piece of evidence (PR-43); evidence the area already holds is cited by id rather than recorded again, and recording the same source, revision and locator twice is refused with the message to cite the existing id.
 
 A minimal call from the terminal (bob is a contributor in `demo`):
@@ -164,12 +169,12 @@ curl -s -u bob:froodbase-dev -H 'Content-Type: application/json' -H 'Accept: app
   -d '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"contribute","arguments":{
     "area":"demo","idempotency_key":"demo-1","rationale":"seen during INC-1",
     "entities":[{"ref":"tool","type":"service","names":[{"name":"Import Tool"}]}],
-    "evidence":[{"ref":"ticket","source_kind":"ticket","source_uri":"https://dev.azure.com/org/p/_workitems/edit/418","source_revision":"2026-10-20","access_class":"area"}],
+    "evidence":[{"ref":"ticket","source_uri":"https://dev.azure.com/org/p/_workitems/edit/418","source_revision":"2026-10-20"}],
     "observations":[{"ref":"obs","subject":"tool","body_markdown":"Callback failure reproduced on version 2.3","scope":{"environment":"prod","version_min":"2.3","version_max":"2.3"},"evidence":["ticket"]}]}}}' \
   http://127.0.0.1:8080/mcp
 ```
 
-The result lists each record with its id; pass an id to `get_record` or `get_history` the same way (`"arguments":{"id":"..."}`).
+The server infers the evidence's `source_kind` (`ticket`) and `access_class` (`area`). The result lists each record with its id; pass an id to `get_record` or `get_history` the same way (`"arguments":{"id":"..."}`).
 
 ### Deductions: decisions and inferences
 

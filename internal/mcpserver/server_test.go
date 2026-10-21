@@ -4,11 +4,14 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"reflect"
+	"sort"
 	"testing"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
 	"github.com/rztaylor/froodbase/internal/authz"
+	"github.com/rztaylor/froodbase/internal/wire"
 )
 
 func connect(ctx context.Context, t *testing.T, s *mcp.Server) *mcp.ClientSession {
@@ -98,5 +101,61 @@ func TestUnavailableBecomesResultNotError(t *testing.T) {
 	}
 	if !out.FroodbaseUnavailable || out.APIURL != "http://127.0.0.1:1/mcp" || out.Message != UnavailableMessage || out.Cause != "connection refused" {
 		t.Fatalf("unavailable = %+v", out)
+	}
+}
+
+// TestContributeSchemaRequiresOnlyWhatCannotBeInferred checks that the
+// contribute input schema leaves out of required what the server fills in
+// (refs, the evidence kind, revision and access class, a statement's
+// source), so a client that validates against it can send a plain change
+// set, and still requires the rest.
+func TestContributeSchemaRequiresOnlyWhatCannotBeInferred(t *testing.T) {
+	ctx := context.Background()
+	cs := connect(ctx, t, New("test", Handlers{Contribute: func(context.Context, wire.ContributeInput) (wire.ContributeOutput, error) {
+		return wire.ContributeOutput{}, nil
+	}}))
+	tools, err := cs.ListTools(ctx, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	raw, err := json.Marshal(tools.Tools[0].InputSchema)
+	if err != nil {
+		t.Fatal(err)
+	}
+	type schema struct {
+		Required   []string           `json:"required"`
+		Properties map[string]*schema `json:"properties"`
+		Items      *schema            `json:"items"`
+	}
+	var root schema
+	if err := json.Unmarshal(raw, &root); err != nil {
+		t.Fatal(err)
+	}
+	item := func(list string) *schema {
+		p := root.Properties[list]
+		if p == nil || p.Items == nil {
+			t.Fatalf("schema has no %s items: %s", list, raw)
+		}
+		return p.Items
+	}
+	for _, c := range []struct {
+		where    string
+		required []string
+	}{
+		{"", []string{"area", "idempotency_key"}},
+		{"entities", []string{"names", "type"}},
+		{"evidence", nil},
+		{"assertions", []string{"body_markdown", "kind", "subject"}},
+		{"observations", []string{"body_markdown", "subject"}},
+	} {
+		s := &root
+		if c.where != "" {
+			s = item(c.where)
+		}
+		got := append([]string(nil), s.Required...)
+		sort.Strings(got)
+		if !reflect.DeepEqual(got, c.required) && (len(got) != 0 || len(c.required) != 0) {
+			t.Errorf("%s required = %v, want %v", c.where, got, c.required)
+		}
 	}
 }
