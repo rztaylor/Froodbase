@@ -47,7 +47,7 @@ To read back: `search` defaults to `mode: current` (in force and valid now). For
 | What you have | `source_kind` | `source_uri` | Also |
 |---|---|---|---|
 | A work item, Jira or GitHub issue | inferred (`ticket`) | its https URL | `source_revision`: the work-item revision, or the date you read it |
-| Code or a file in a repository | inferred (`repository`) | a permalink with the full commit SHA (`.../blob/<sha>/path`) | `locator`: line range or function. With the SHA in the URL, the revision is inferred. For a local checkout, build the URL from `git remote get-url origin` and `git rev-parse HEAD`, and only if that commit is pushed |
+| Code or a file in a repository | inferred (`repository`) | a permalink with the full commit SHA (`.../blob/<sha>/path`) | `locator`: line range or function. With the SHA in the URL, the revision is inferred. For a file in a local checkout, follow [Citing a file from a local checkout](#citing-a-file-from-a-local-checkout) |
 | A Confluence, SharePoint or Azure DevOps wiki page | inferred (`document`) | its https URL | `source_revision`: the page version, or the date you read it. `locator`: the section |
 | A saved telemetry query | `telemetry_query` | its https URL | `source_revision`: the query snapshot or time window |
 | Any other https page | name it (`document`, `ticket` and so on) | its https URL | `source_revision` |
@@ -57,6 +57,27 @@ To read back: `search` defaults to `mode: current` (in force and valid now). For
 - `access_class` defaults to `area`. Set `restricted` when the source is limited to named people, for example a restricted ticket, a personal file or a security case. Set `organisation` only when everyone in the organisation can open the source. Never claim a wider class than the source allows.
 - `root` names the evidence (ref or id) that this evidence restates, for example a document quoting a ticket. Corroboration then counts the original once.
 - Each run of a command is its own evidence and its own root. Running it again later and seeing the same thing is real corroboration, so record the new run.
+
+### Citing a file from a local checkout
+
+A file you read on this computer can be cited only as the exact version others can open on the shared remote. Check all four, in order. If any check fails, the file counts as a local file: cite what it relied on instead (see step 1 of Recording the findings in a document), or ask the person to commit and push and then check again.
+
+1. **What you read is committed.** The file is tracked (`git ls-files --error-unmatch -- <path>` succeeds) and has no staged, unstaged or untracked changes (`git status --porcelain -- <path>` prints nothing). Otherwise the text you read is in no commit, and citing a commit would cite different text.
+2. **The commit is the one that last changed the file**, not `HEAD`: `git log -1 --format=%H -- <path>`. A later commit that did not touch the file does not matter, pushed or not.
+3. **That commit is on the shared remote.** Run `git fetch --quiet <remote>`, then `git branch -r --contains <sha>` must list a branch of that remote. Use the remote that holds the team's repository: when `origin` is a personal fork, use the upstream remote (`git remote -v`) and check the commit is there. Never cite `main` or a branch name.
+4. **The area's readers can open that repository.** A personal fork, or a private repository only some of the area's readers can open, cannot be checked by them. On GitHub, `gh repo view <owner>/<repo> --json visibility,isFork` shows both. If the repository is open to fewer people than the area, set `access_class: restricted` (or ask the person whether to record it at all). If you cannot tell who can open it, ask the person once.
+
+Then build the permalink from the remote's address. Drop any user name or credentials in it (`https://user:token@...`, `https://org@dev.azure.com/...`) and never copy them anywhere. The path is from the repository root (`git ls-files --full-name -- <path>`). `<sha>` is the full 40-character commit id.
+
+| Remote address (`git remote get-url <remote>`) | Permalink |
+|---|---|
+| `git@github.com:<owner>/<repo>.git` or `https://github.com/<owner>/<repo>(.git)` | `https://github.com/<owner>/<repo>/blob/<sha>/<path>` (add `#L10-L24` for lines) |
+| `git@gitlab.com:<group>/<repo>.git` or `https://gitlab.com/<group>/<repo>.git` (subgroups included; any GitLab host) | `https://<host>/<group>/<repo>/-/blob/<sha>/<path>` |
+| `git@bitbucket.org:<workspace>/<repo>.git` or `https://bitbucket.org/<workspace>/<repo>.git` | `https://bitbucket.org/<workspace>/<repo>/src/<sha>/<path>` |
+| `git@ssh.dev.azure.com:v3/<org>/<project>/<repo>` or `https://dev.azure.com/<org>/<project>/_git/<repo>` | `https://dev.azure.com/<org>/<project>/_git/<repo>?path=/<path>&version=GC<sha>` |
+| `https://<org>.visualstudio.com/<project>/_git/<repo>` | `https://<org>.visualstudio.com/<project>/_git/<repo>?path=/<path>&version=GC<sha>` |
+
+The server recognises these forms and infers `repository` and the revision from the commit id. For any other host (GitHub Enterprise, a self-hosted Bitbucket), give `source_kind: repository` and `source_revision: <sha>` yourself, using the address the area's readers use in a browser.
 
 ## Commands you ran
 
@@ -95,8 +116,8 @@ When a claim is already recorded and you have found a source it does not cite ye
 When the person says "record the useful information in this document", read the document with your own tools and contribute its findings one by one. Never send the document, a summary of it or its sections. Froodbase only holds each finding, its citation and at most a short excerpt.
 
 1. **Where it lives decides what you cite.**
-   - **In a repository** (committed and pushed) or on a wiki page at a known version: the document is the source. For a local checkout, build the permalink from `git remote get-url origin` and `git log -1 --format=%H -- <path>`, and check that the commit is pushed (`git branch -r --contains <sha>`). Never cite `main` or a branch.
-   - **Only on this computer** (a local file, a download, an unpushed draft): it cannot be cited, because nobody else can open it. Cite what it relied on instead: the tickets, pull requests and pages it names, the commands it quotes (re-run them if you can and cite your run), and the person's own knowledge as a `statement` if they agree to state it. Ask them once, listing those findings, before you record any statement for them.
+   - **In a repository** or on a wiki page at a known version: the document is the source. For a file in a local checkout, it is in a repository only when it passes every check in [Citing a file from a local checkout](#citing-a-file-from-a-local-checkout): committed with no local changes, cited at the last commit that changed it, that commit on the shared remote, and that repository open to the area's readers. Never cite `main` or a branch.
+   - **Only on this computer** (a local file, a download, an unpushed draft, a checked-out file with local changes, or one only you or a few of the area's readers can open): it cannot be cited, because the area's readers cannot check it. Cite what it relied on instead: the tickets, pull requests and pages it names, the commands it quotes (re-run them if you can and cite your run), and the person's own knowledge as a `statement` if they agree to state it. Ask them once, listing those findings, before you record any statement for them.
 2. **Search first**, for every system the document names and for its main findings (step 2 of Recording a finding). Use existing entities as subjects, so the document's systems join the records the area already has. A finding that is already recorded is not recorded again. If the document only restates a source that claim already cites (it quotes the same ticket), it adds nothing, so tell the person. If it has a source of its own (a measurement, a code reference), add it under `links`.
 3. **Sort each statement in the document.**
    - What it reports seeing (a measurement, a log line, a configuration) is an `observation` citing its section.

@@ -225,7 +225,12 @@ A person can point Claude at a document and ask it to record what is useful in i
 
 The worked example uses [`docs/dev/guides/sample-design-note.md`](../guides/sample-design-note.md), a short fictional design note about the import tool from the walkthrough. Run walkthrough step 4 first, so the area already knows the import tool and the work item's finding, then say in Claude Code: "Record the useful information in docs/dev/guides/sample-design-note.md."
 
-1. **The citation.** The note is committed, so the note is the source, cited at the last commit that changed it: Claude runs `git log -1 --format=%H -- docs/dev/guides/sample-design-note.md` and checks the commit is pushed (`git branch -r --contains <sha>`). The URL is `https://github.com/rztaylor/Froodbase/blob/<sha>/docs/dev/guides/sample-design-note.md`. The server infers `repository` and the revision from the SHA. If the file has uncommitted changes, or the commit is not pushed, nobody else could check that version, so Claude treats it as a local file (below).
+1. **The citation.** The note is in a git checkout, so Claude runs the skill's checks for citing a file from a local checkout before using it as the source:
+   - `git status --porcelain -- docs/dev/guides/sample-design-note.md` prints nothing, so the text Claude read is committed.
+   - `git log -1 --format=%H -- docs/dev/guides/sample-design-note.md` gives the last commit that changed the note (not `HEAD`), and after `git fetch --quiet origin`, `git branch -r --contains <sha>` lists `origin/main`, so the commit is on the shared remote.
+   - `origin` is `rztaylor/Froodbase`, a public repository that is not a fork, so every reader of the area can open it.
+
+   The URL is `https://github.com/rztaylor/Froodbase/blob/<sha>/docs/dev/guides/sample-design-note.md`, and the server infers `repository` and the revision from the SHA. If the note had uncommitted changes, if the commit were not on the remote, or if the repository were a personal fork or one the area's readers could not open, nobody else could check that version, so Claude would treat it as a local file (below) or ask the person to commit and push.
 2. **Search first.** `search` for "Import Tool" finds the entity from step 4, so every finding about the tool uses its id. "Callback Gateway" finds nothing, so the change set creates it. "callbacks timeout" finds the work item's observation: the note's Background section only restates that work item, so it adds nothing and is not recorded again.
 3. **One change set.** The note is recorded once without a locator, followed by one evidence record per section cited (`Measurements`, `Analysis`, `Decision`), each naming the note as its `root`. Then the claims:
 

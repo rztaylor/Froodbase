@@ -26,6 +26,7 @@ All notable changes to Froodbase are recorded here. The format follows Keep a Ch
 
 ### Changed
 
+- The contribution skill cites a file from a local git checkout only as a version others can open: the file has no uncommitted changes, it is cited at the last commit that changed it, that commit is on the shared remote (the upstream when `origin` is a personal fork), and the repository is open to the knowledge area's readers. Otherwise Claude treats it as a local file or asks the person to commit and push. The skill also gives the permalink form for GitHub, GitLab, Bitbucket and Azure DevOps remotes, without any credentials the remote address carries.
 - Planning (docs only): the local MVP gains slice 1b, so agents can record deductions linked to their sources, cite facts from commands and statements by named people, and contribute from plain language or a document, and slice 3b, which imports the system-map-discovery architecture references and regenerates them as readable views so Froodbase can take over from those files.
 - Evidence and contributions belong to a knowledge area, and evidence can name a locator (line range or section) inside the cited revision.
 
