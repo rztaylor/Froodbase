@@ -423,7 +423,7 @@ Worked example from the pitch, as stored:
 | v2.4 deployed, remediation verified | observation | prod, v2.4 | 2026-09-09 | null | 2026-09-09 | active; supersedes the failure record with reason "remediated in 2.4" |
 | Older investigation imported | evidence + inference | prod, v2.3 | 2026-09-02 | 2026-09-09 | 2026-10-13 | active, historical by validity; as-of 2026-09-03 query returns it, current does not |
 
-The merge record does not supersede the failure record because its scope (repository) does not overlap production. Only the verified deployment does.
+Nothing supersedes by overlap alone: supersession is declared with a reason. The verified deployment declares it; the merge record does not, and could not be taken for a correction of the failure, because its scope (repository) does not overlap production. The deployment (prod, v2.4) does not overlap the failure (prod, v2.3) either, since their versions differ, so the two never form a dispute; the correction is the deployment's declared supersession.
 
 ## 7. Request flows
 
