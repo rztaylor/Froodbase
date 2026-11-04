@@ -9,7 +9,7 @@ require (
 	github.com/pressly/goose/v3 v3.29.0
 	github.com/riverqueue/river v0.49.0
 	github.com/riverqueue/river/riverdriver/riverpgxv5 v0.49.0
-	github.com/riverqueue/river/rivertype v0.49.0
+	github.com/riverqueue/river/rivertype v0.51.0
 	github.com/testcontainers/testcontainers-go/modules/postgres v0.44.0
 	golang.org/x/crypto v0.58.0
 )
